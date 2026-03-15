@@ -180,15 +180,24 @@
             renderTable(selected === "" ? allData : allData.filter(d => d.worker === selected));
         }
 
+        function getTodayDate() {
+            const d = new Date();
+            return d.getFullYear() + '-' + (d.getMonth() + 1).toString().padStart(2, '0') + '-' + d.getDate().toString().padStart(2, '0');
+        }
+
         async function downloadSinglePDF() {
             const worker = document.getElementById('workerFilter').value;
             if (!worker) return alert("Select a worker first.");
             const workerTasks = allData.filter(d => d.worker === worker);
             const renderZone = document.getElementById('pdf-content-area');
             renderZone.innerHTML = generatePrintHtml(worker, workerTasks);
+            
+            const dateStr = getTodayDate();
+            const fileName = `${worker.replace(/[^a-z0-9]/gi, '_')}_${dateStr}.pdf`;
+
             const opt = { 
                 margin: [0.15, 0.3, 0.15, 0.3], 
-                filename: `${worker.replace(/[^a-z0-9]/gi, '_')}.pdf`, 
+                filename: fileName, 
                 html2canvas: { scale: 2 }, 
                 jsPDF: { unit: 'in', format: 'letter', orientation: 'landscape' },
                 pagebreak: { mode: ['css', 'legacy'] }
@@ -204,6 +213,8 @@
             
             progressCont.classList.remove('hidden');
             document.getElementById('zipBtn').disabled = true;
+
+            const dateStr = getTodayDate();
 
             try {
                 for (let i = 0; i < uniqueWorkers.length; i++) {
@@ -225,7 +236,7 @@
                     };
 
                     const pdfBlob = await html2pdf().set(opt).from(renderZone).output('blob');
-                    zip.file(`${worker.replace(/[^a-z0-9]/gi, '_')}.pdf`, pdfBlob);
+                    zip.file(`${worker.replace(/[^a-z0-9]/gi, '_')}_${dateStr}.pdf`, pdfBlob);
                     
                     await new Promise(r => setTimeout(r, 100));
                 }
@@ -238,7 +249,7 @@
 
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(content);
-                a.download = `DispatchPack_${new Date().getTime()}.zip`;
+                a.download = `DispatchPack_${dateStr}.zip`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
