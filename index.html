@@ -24,7 +24,7 @@
                 <div class="brand-blue text-white p-2 rounded-lg font-bold text-xl w-10 text-center shadow-md">TB</div>
                 <div>
                     <h1 class="text-xl font-bold text-slate-800 tracking-tight">Onfleet Route Manager</h1>
-                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-1">18-Line Sequential Export</p>
+                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-1">18-Line Dated Export</p>
                 </div>
             </div>
 
@@ -182,7 +182,10 @@
 
         function getTodayDate() {
             const d = new Date();
-            return d.getFullYear() + '-' + (d.getMonth() + 1).toString().padStart(2, '0') + '-' + d.getDate().toString().padStart(2, '0');
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
         }
 
         async function downloadSinglePDF() {
@@ -193,7 +196,8 @@
             renderZone.innerHTML = generatePrintHtml(worker, workerTasks);
             
             const dateStr = getTodayDate();
-            const fileName = `${worker.replace(/[^a-z0-9]/gi, '_')}_${dateStr}.pdf`;
+            const cleanWorker = worker.replace(/[^a-z0-9]/gi, '_');
+            const fileName = `${cleanWorker}_Dispatch_${dateStr}.pdf`;
 
             const opt = { 
                 margin: [0.15, 0.3, 0.15, 0.3], 
@@ -236,7 +240,8 @@
                     };
 
                     const pdfBlob = await html2pdf().set(opt).from(renderZone).output('blob');
-                    zip.file(`${worker.replace(/[^a-z0-9]/gi, '_')}_${dateStr}.pdf`, pdfBlob);
+                    const cleanWorker = worker.replace(/[^a-z0-9]/gi, '_');
+                    zip.file(`${cleanWorker}_${dateStr}.pdf`, pdfBlob);
                     
                     await new Promise(r => setTimeout(r, 100));
                 }
@@ -255,7 +260,7 @@
                 document.body.removeChild(a);
 
                 progressBar.style.width = "100%";
-                status.innerText = "Complete. Unblock the file in properties if Windows prevents extraction.";
+                status.innerText = "Complete. Check your Downloads folder.";
             } catch (err) {
                 console.error(err);
                 status.innerText = "Export failed.";
