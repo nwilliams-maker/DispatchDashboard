@@ -3,140 +3,128 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Terraboost | Live Dispatch Dashboard</title>
+    <title>Terraboost | Dispatch Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
     <style>
-        body { background-color: #f1f5f9; font-family: 'Inter', sans-serif; }
-        .brand-blue { background-color: #4477ce; }
-        .data-card { border-radius: 12px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        th { background-color: #1e293b !important; color: white !important; font-weight: 800 !important; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; border: none !important; }
-        #progress-bar { transition: width 0.4s ease; }
+        body { background-color: #f8fafc; font-family: 'Inter', sans-serif; }
+        .brand-gradient { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); }
+        .action-card { border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
+        th { background-color: #f1f5f9 !important; color: #475569 !important; font-weight: 800 !important; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; }
         #pdf-render-zone { position: absolute; left: -9999px; top: -9999px; width: 1100px; }
+        
+        /* Loading Spinner Animation */
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #2563eb;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
-<body class="p-4 md:p-8">
+<body class="p-4 md:p-6 lg:p-10">
 
-    <div class="max-w-full mx-auto space-y-6">
-        <div class="flex flex-col lg:flex-row justify-between items-center gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <div class="flex items-center gap-3">
-                <div class="brand-blue text-white p-2 rounded-lg font-bold text-xl w-10 text-center shadow-md">TB</div>
+    <div class="max-w-[1600px] mx-auto space-y-6">
+        <div class="bg-white border border-slate-200 action-card p-6 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
+            <div class="flex items-center gap-4">
+                <div class="brand-gradient text-white p-3 rounded-xl font-black text-2xl shadow-lg">TB</div>
                 <div>
-                    <h1 class="text-xl font-bold text-slate-800 tracking-tight">Onfleet Route Manager</h1>
-                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-1">Live API Dispatch Portal</p>
+                    <h1 class="text-2xl font-extrabold text-slate-800 tracking-tight leading-none">Onfleet Manager</h1>
+                    <div class="flex items-center gap-2 mt-1.5">
+                        <p class="text-[11px] text-slate-400 font-bold uppercase tracking-[0.2em]">90-Day US Feed</p>
+                        <span id="syncDot" class="h-2 w-2 rounded-full bg-slate-300"></span>
+                    </div>
                 </div>
             </div>
 
-            <div class="flex flex-wrap gap-3">
-                <button onclick="fetchOnfleetData()" class="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-xs font-bold uppercase hover:bg-blue-700 transition-all shadow-lg">
-                    1. Sync Live Routes
-                </button>
-                
-                <select id="workerFilter" onchange="filterByWorker()" class="border-2 border-slate-100 rounded-xl px-4 py-2 text-xs font-bold outline-none bg-slate-50 text-black">
-                    <option value="">Select Worker...</option>
-                </select>
-
-                <button id="singleDownloadBtn" onclick="downloadSinglePDF()" disabled class="bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-xs font-bold uppercase shadow-lg hover:bg-emerald-700 transition-all opacity-50 cursor-not-allowed">
-                    2a. Download PDF
-                </button>
-
-                <button id="zipBtn" onclick="batchZipPDFs()" disabled class="brand-blue text-white px-5 py-2.5 rounded-xl text-xs font-bold uppercase shadow-lg hover:bg-blue-700 transition-all opacity-50 cursor-not-allowed">
-                    2b. Download ZIP (All)
-                </button>
+            <div class="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+                <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="Search..." 
+                       class="bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-4 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <select id="workerFilter" onchange="filterTable()" class="bg-white border-2 border-slate-100 rounded-xl px-4 py-2.5 text-xs font-bold outline-none cursor-pointer hover:border-slate-300 transition-all"></select>
+                <button onclick="fetchOnfleetData()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase shadow-md transition-all active:scale-95">Sync Routes</button>
+                <button id="zipBtn" onclick="batchZipPDFs()" disabled class="bg-slate-800 text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase opacity-50 cursor-not-allowed">Export ZIP</button>
             </div>
         </div>
 
-        <div id="progress-container" class="hidden space-y-2">
-            <div class="w-full bg-slate-200 rounded-full h-2">
-                <div id="progress-bar" class="bg-blue-600 h-2 rounded-full" style="width: 0%"></div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-white border border-slate-200 p-5 rounded-2xl flex items-center justify-between shadow-sm">
+                <div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Tasks</p><h3 id="statTasks" class="text-2xl font-black text-slate-800">0</h3></div>
+                <div class="text-2xl">📋</div>
             </div>
-            <p id="status_msg" class="text-[10px] text-slate-500 italic text-center uppercase font-black tracking-widest"></p>
+            <div class="bg-white border border-slate-200 p-5 rounded-2xl flex items-center justify-between shadow-sm">
+                <div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Workers</p><h3 id="statWorkers" class="text-2xl font-black text-slate-800">0</h3></div>
+                <div class="text-2xl">👥</div>
+            </div>
+            <div class="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm relative overflow-hidden flex items-center justify-between">
+                <div id="progress-container" class="hidden flex items-center gap-4 w-full">
+                    <div class="loader"></div>
+                    <div>
+                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Status</p>
+                        <h3 id="status_msg" class="text-sm font-black text-blue-600">Syncing...</h3>
+                    </div>
+                </div>
+                <div id="readyMsg" class="flex items-center justify-between w-full">
+                    <div>
+                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</p>
+                        <h3 id="syncTimestamp" class="text-sm font-black text-slate-400 italic">Ready for Sync</h3>
+                    </div>
+                    <button id="singleDownloadBtn" onclick="downloadSinglePDF()" disabled class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase opacity-50 cursor-not-allowed shadow-sm transition-all">PDF Download</button>
+                </div>
+            </div>
         </div>
 
-        <div class="data-card bg-white border border-slate-200">
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse" id="onfleetTable">
                     <thead>
-                        <tr id="debugRow" class="hidden bg-yellow-50 border-b-2 border-yellow-200">
-                            <td colspan="9" class="p-4">
-                                <p class="text-[10px] font-black text-yellow-700 uppercase mb-1">Raw Data (First Task):</p>
-                                <div id="rawJSON" class="text-[9px] font-mono text-slate-700 break-all bg-white p-2 border rounded shadow-inner max-h-32 overflow-y-auto">
-                                    Waiting for data...
-                                </div>
-                            </td>
-                        </tr>
                         <tr>
-                            <th class="p-4">Route Name</th> 
-                            <th class="p-4">Worker</th>
-                            <th class="p-4">Venue</th>
-                            <th class="p-4">Kiosk ID</th>
-                            <th class="p-4">Kiosk Location</th>
-                            <th class="p-4">Campaign</th>
-                            <th class="p-4">Task Type</th>
-                            <th class="p-4">Art Type</th>
-                            <th class="p-4">Address</th>
+                            <th class="p-4 w-12">#</th><th class="p-4">Worker</th><th class="p-4">Venue</th><th class="p-4">Kiosk ID</th><th class="p-4">Loc</th><th class="p-4">Campaign</th><th class="p-4">Type</th><th class="p-4">Art</th><th class="p-4">Address</th>
                         </tr>
                     </thead>
                     <tbody id="tableBody" class="text-[11px] text-slate-600 font-medium">
-                        <tr><td colspan="9" class="p-20 text-center text-slate-300 italic text-sm">Waiting for API Sync...</td></tr>
+                        <tr><td colspan="9" class="p-32 text-center text-slate-300 italic text-base">Click "Sync Routes" to load US data...</td></tr>
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
 
-    <div id="pdf-render-zone"><div id="pdf-content-area" class="bg-white"></div></div>
+    <div id="pdf-render-zone"><div id="pdf-content-area"></div></div>
 
     <script>
         const proxyUrl = "https://script.google.com/macros/s/AKfycbwlkBy7y1NUgjAnT2Umj-FqY-5tNoUlo7yh_vOEOwmMoKy-1GlTL-fvX-L_27L8U4KK/exec";
-        
         let allData = [];
         let uniqueWorkers = [];
 
         async function fetchOnfleetData() {
-            const status = document.getElementById('status_msg');
-            const progressCont = document.getElementById('progress-container');
-            const progressBar = document.getElementById('progress-bar');
-            const debugRow = document.getElementById('debugRow');
-            const rawJSONBox = document.getElementById('rawJSON');
+            const statusMsg = document.getElementById('status_msg');
+            const progCont = document.getElementById('progress-container');
+            const readyMsg = document.getElementById('readyMsg');
             
-            progressCont.classList.remove('hidden');
-            status.innerText = "Connecting to Onfleet...";
-            progressBar.style.width = "30%";
+            progCont.classList.remove('hidden'); 
+            readyMsg.classList.add('hidden');
+            statusMsg.innerText = "Connecting to Onfleet..."; 
 
             try {
                 const response = await fetch(proxyUrl);
-                const tasks = await response.json();
-
-                if (!tasks || tasks.error) throw new Error(tasks.error || "No data received.");
-
-                const taskArray = Array.isArray(tasks) ? tasks : (tasks.tasks || []);
+                statusMsg.innerText = "Receiving tasks...";
                 
-                if (taskArray.length > 0) {
-                    debugRow.classList.remove('hidden');
-                    rawJSONBox.innerText = JSON.stringify(taskArray[0], null, 2);
-                }
-
-                status.innerText = "Mapping live data...";
-                progressBar.style.width = "70%";
-
-                allData = taskArray.map(t => {
-                    const getField = (key) => {
-                        if (t.customFields && Array.isArray(t.customFields)) {
-                            const match = t.customFields.find(f => f.key === key);
-                            return (match && match.value !== undefined) ? match.value : "N/A";
-                        }
-                        return "N/A";
-                    };
-
-                    const addr = (t.destination && t.destination.address) ? 
-                        `${t.destination.address.number || ''} ${t.destination.address.street || ''}, ${t.destination.address.city || ''}, ${t.destination.address.state || ''}`.trim() : 
-                        "N/A";
-
+                const tasks = await response.json();
+                if (!tasks || tasks.error) throw new Error(tasks.error);
+                
+                statusMsg.innerText = "Mapping live data...";
+                allData = tasks.map(t => {
+                    const getField = (key) => t.customFields?.find(f => f.key === key)?.value || "N/A";
+                    const a = t.destination?.address;
                     return {
-                        // Directly use the routeName string built by the Google Apps Script
-                        routeName: t.routeName || "Manual Dispatch",
                         worker: t.workerName || "Unassigned", 
                         venue: getField("venueName"),
                         kiosk: getField("kioskId"),
@@ -144,183 +132,164 @@
                         campaign: getField("campaignName"),
                         type: getField("taskType"),
                         boost: getField("boostedStandard"),
-                        address: addr
+                        address: a ? `${a.number} ${a.street}, ${a.city}, ${a.state}` : "N/A"
                     };
                 });
 
-                const workerSet = new Set(allData.map(d => d.worker));
-                uniqueWorkers = Array.from(workerSet).sort();
-                
-                const dropdown = document.getElementById('workerFilter');
-                dropdown.innerHTML = `<option value="">Select Worker (${uniqueWorkers.length})</option>`;
-                uniqueWorkers.forEach(w => { 
-                    const opt = document.createElement('option');
-                    opt.value = w;
-                    opt.textContent = w;
-                    dropdown.appendChild(opt);
-                });
+                statusMsg.innerText = "Finalizing dashboard...";
+                document.getElementById('statTasks').innerText = allData.length;
+                uniqueWorkers = Array.from(new Set(allData.map(d => d.worker))).sort();
+                document.getElementById('statWorkers').innerText = uniqueWorkers.length;
+                document.getElementById('workerFilter').innerHTML = `<option value="">Select Worker (${uniqueWorkers.length})</option>` + uniqueWorkers.map(w => `<option value="${w}">${w}</option>`).join('');
 
                 renderTable(allData);
                 
-                document.getElementById('zipBtn').disabled = false;
+                statusMsg.innerText = "Sync Complete!";
+                document.getElementById('syncDot').className = 'h-2 w-2 rounded-full bg-emerald-500';
+                document.getElementById('syncTimestamp').innerText = `Synced at ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
+                
+                document.getElementById('zipBtn').disabled = false; 
                 document.getElementById('zipBtn').classList.remove('opacity-50', 'cursor-not-allowed');
-                document.getElementById('singleDownloadBtn').disabled = false;
+                document.getElementById('singleDownloadBtn').disabled = false; 
                 document.getElementById('singleDownloadBtn').classList.remove('opacity-50', 'cursor-not-allowed');
 
-                status.innerText = `Sync Complete: Found ${allData.length} active tasks.`;
-                progressBar.style.width = "100%";
+                setTimeout(() => {
+                    progCont.classList.add('hidden'); 
+                    readyMsg.classList.remove('hidden');
+                }, 1000);
 
-            } catch (err) {
-                status.innerText = "Sync Failed: " + err.message;
-                console.error("Fetch Error:", err);
+            } catch (err) { 
+                statusMsg.innerText = "Sync Failed"; 
+                statusMsg.className = "text-sm font-black text-red-600";
             }
         }
 
         function renderTable(data) {
-            const tableBody = document.getElementById('tableBody');
-            tableBody.innerHTML = data.map(item => `
-                <tr class="border-b border-slate-100">
-                    <td class="p-4 font-bold text-slate-900">${item.routeName}</td>
-                    <td class="p-4 font-bold text-blue-700">${item.worker}</td>
-                    <td class="p-4">${item.venue}</td>
-                    <td class="p-4 font-mono font-bold">${item.kiosk}</td>
-                    <td class="p-4 text-emerald-600 font-bold">${item.kioskLoc}</td>
-                    <td class="p-4 italic text-slate-500">${item.campaign}</td>
-                    <td class="p-4 uppercase text-[9px]">${item.type}</td>
-                    <td class="p-4 font-black text-[9px]">${item.boost}</td>
-                    <td class="p-4 text-[10px] leading-tight">${item.address}</td>
+            document.getElementById('tableBody').innerHTML = data.map((item, index) => `
+                <tr class="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                    <td class="p-4 font-black text-slate-400">${index + 1}</td>
+                    <td class="p-4 font-bold text-blue-600">${item.worker}</td>
+                    <td class="p-4 text-slate-500 font-semibold">${item.venue}</td>
+                    <td class="p-4 font-mono font-bold text-slate-700">${item.kiosk}</td>
+                    <td class="p-4 text-emerald-600 font-black">${item.kioskLoc}</td>
+                    <td class="p-4 text-slate-400 italic">${item.campaign}</td>
+                    <td class="p-4 font-bold text-[10px] uppercase">${item.type}</td>
+                    <td class="p-4 font-black text-slate-800">${item.boost}</td>
+                    <td class="p-4 text-[10px] leading-tight text-slate-500">${item.address}</td>
                 </tr>
             `).join('');
         }
 
-        function filterByWorker() {
-            const selected = document.getElementById('workerFilter').value;
-            renderTable(selected === "" ? allData : allData.filter(d => d.worker === selected));
-        }
-
-        function getTodayDate() {
-            const d = new Date();
-            return d.toISOString().split('T')[0];
-        }
-
-        async function downloadSinglePDF() {
-            const worker = document.getElementById('workerFilter').value;
-            if (!worker) return alert("Select a worker first.");
-            const workerTasks = allData.filter(d => d.worker === worker);
-            const renderZone = document.getElementById('pdf-content-area');
-            renderZone.innerHTML = generatePrintHtml(worker, workerTasks);
-            
-            const dateStr = getTodayDate();
-            const cleanWorker = worker.replace(/[^a-z0-9]/gi, '_');
-            const fileName = `${cleanWorker}_Dispatch_${dateStr}.pdf`;
-
-            const opt = { 
-                margin: [0.15, 0.3, 0.15, 0.3], 
-                filename: fileName, 
-                html2canvas: { scale: 2 }, 
-                jsPDF: { unit: 'in', format: 'letter', orientation: 'landscape' },
-                pagebreak: { mode: ['css', 'legacy'] }
-            };
-            await html2pdf().set(opt).from(renderZone).save();
-        }
-
-        async function batchZipPDFs() {
-            const zip = new JSZip();
-            const status = document.getElementById('status_msg');
-            const progressCont = document.getElementById('progress-container');
-            const progressBar = document.getElementById('progress-bar');
-            
-            progressCont.classList.remove('hidden');
-            document.getElementById('zipBtn').disabled = true;
-            const dateStr = getTodayDate();
-
-            try {
-                for (let i = 0; i < uniqueWorkers.length; i++) {
-                    const worker = uniqueWorkers[i];
-                    const percent = Math.round((i / uniqueWorkers.length) * 100);
-                    progressBar.style.width = percent + "%";
-                    status.innerText = `Generating PDF (${i + 1}/${uniqueWorkers.length}): ${worker}`;
-
-                    const workerTasks = allData.filter(d => d.worker === worker);
-                    const renderZone = document.getElementById('pdf-content-area');
-                    renderZone.innerHTML = generatePrintHtml(worker, workerTasks);
-
-                    const opt = { 
-                        margin: [0.15, 0.3, 0.15, 0.3], 
-                        image: { type: 'jpeg', quality: 0.98 }, 
-                        html2canvas: { scale: 1.5, useCORS: true }, 
-                        jsPDF: { unit: 'in', format: 'letter', orientation: 'landscape' }
-                    };
-
-                    const pdfBlob = await html2pdf().set(opt).from(renderZone).output('blob');
-                    const cleanWorker = worker.replace(/[^a-z0-9]/gi, '_');
-                    zip.file(`${cleanWorker}_${dateStr}.pdf`, pdfBlob);
-                    await new Promise(r => setTimeout(r, 100));
-                }
-
-                status.innerText = "Creating Zip Archive...";
-                const content = await zip.generateAsync({ type: "blob" });
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(content);
-                a.download = `All_Dispatches_${dateStr}.zip`;
-                a.click();
-                status.innerText = "Download Complete.";
-            } catch (err) {
-                status.innerText = "Batch failed.";
-            } finally {
-                document.getElementById('zipBtn').disabled = false;
-            }
+        function filterTable() {
+            const searchVal = document.getElementById('searchInput').value.toLowerCase();
+            const workerVal = document.getElementById('workerFilter').value;
+            renderTable(allData.filter(d => (Object.values(d).some(v => String(v).toLowerCase().includes(searchVal))) && (workerVal === "" || d.worker === workerVal)));
         }
 
         function generatePrintHtml(worker, tasks) {
-            const batchSize = 18; 
+            const batchSize = 22;
             let fullHtml = '';
+            const today = new Date().toLocaleDateString();
+
             for (let i = 0; i < tasks.length; i += batchSize) {
                 const batch = tasks.slice(i, i + batchSize);
-                const rowsHtml = batch.map(t => `
-                    <tr style="border-bottom: 1px solid #eee;">
-                        <td style="padding: 4px 8px; font-size: 10px; font-weight: 900; width: 100px;">${t.routeName}</td>
-                        <td style="padding: 4px 8px; font-size: 10px; font-weight: 800; width: 115px;">${t.venue}</td>
-                        <td style="padding: 4px 8px; font-size: 10px; font-weight: 800; width: 65px;">${t.kiosk}</td>
-                        <td style="padding: 4px 8px; font-size: 10px; font-weight: 900; color: #059669; width: 110px;">${t.kioskLoc}</td>
-                        <td style="padding: 4px 8px; font-size: 9px; width: 140px; color: #666;">${t.campaign}</td>
-                        <td style="padding: 4px 8px; font-size: 9px; width: 70px; font-weight: bold; text-transform: uppercase;">${t.type}</td>
-                        <td style="padding: 4px 8px; font-size: 9px; width: 60px; font-weight: 900;">${t.boost}</td>
-                        <td style="padding: 4px 8px; font-size: 9px; line-height: 1.1; width: 170px;">${t.address}</td>
+                const rowsHtml = batch.map((t, index) => `
+                    <tr style="border-bottom: 1px solid #e2e8f0; vertical-align: top;">
+                        <td style="padding: 6px; font-size: 9px; font-weight: 900; color: #94a3b8; width: 30px; text-align: center;">${i + index + 1}</td>
+                        <td style="padding: 6px; font-size: 9px; font-weight: 700; width: 140px;">${t.venue}</td>
+                        <td style="padding: 6px; font-size: 9px; font-weight: 700; width: 70px; font-family: monospace;">${t.kiosk}</td>
+                        <td style="padding: 6px; font-size: 9px; font-weight: 900; color: #059669; width: 100px;">${t.kioskLoc}</td>
+                        <td style="padding: 6px; font-size: 8.5px; width: 180px; color: #475569; word-wrap: break-word;">${t.campaign}</td>
+                        <td style="padding: 6px; font-size: 8.5px; width: 80px; font-weight: bold; text-transform: uppercase;">${t.type}</td>
+                        <td style="padding: 6px; font-size: 8.5px; width: 70px; font-weight: 900;">${t.boost}</td>
+                        <td style="padding: 6px; font-size: 8.5px; line-height: 1.2; width: 220px; word-wrap: break-word;">${t.address}</td>
                     </tr>
                 `).join('');
 
                 fullHtml += `
-                    <div style="font-family: Arial, sans-serif; padding: 10px 30px; page-break-after: always;">
-                        <div style="display: flex; justify-content: space-between; border-bottom: 4px solid #1e293b; padding-bottom: 4px; margin-bottom: 8px;">
-                            <div>
-                                <h1 style="font-size: 18px; margin: 0; font-weight: 900;">WORK ORDER DISPATCH</h1>
-                                <p style="margin: 0; font-size: 9px; font-weight: bold; color: #4477ce;">TERRABOOST MEDIA | LIVE FEED</p>
-                            </div>
-                            <div style="text-align: right;">
-                                <h2 style="font-size: 13px; margin: 0; font-weight: 900;">${worker}</h2>
-                                <p style="margin: 0; font-size: 8px; color: #94a3b8;">Export Date: ${getTodayDate()}</p>
-                            </div>
+                    <div style="padding: 0.3in; background: white; page-break-after: always; font-family: 'Inter', sans-serif;">
+                        <div style="display: flex; justify-content: space-between; border-bottom: 4px solid #1e293b; padding-bottom: 8px; margin-bottom: 15px;">
+                            <div><h1 style="font-size: 18px; margin: 0; font-weight: 800;">CURRENT WORKLOAD</h1><p style="margin: 0; font-size: 9px; font-weight: 800; color: #4477ce; letter-spacing: 0.1em;">TERRABOOST MEDIA</p></div>
+                            <div style="text-align: right;"><h2 style="font-size: 13px; margin: 0; font-weight: 800;">${worker}</h2><p style="margin: 0; font-size: 8px; font-weight: 700;">DATED: ${today}</p></div>
                         </div>
                         <table style="width: 100%; border-collapse: collapse; table-layout: fixed;">
                             <thead>
-                                <tr style="background: #1e293b; color: white; font-size: 8px;">
-                                    <th style="padding: 6px 8px; text-align: left; width: 100px;">ROUTE NAME</th>
-                                    <th style="padding: 6px 8px; text-align: left; width: 115px;">VENUE</th>
-                                    <th style="padding: 6px 8px; text-align: left; width: 65px;">KIOSK ID</th>
-                                    <th style="padding: 6px 8px; text-align: left; width: 110px;">KIOSK LOC</th>
-                                    <th style="padding: 8px 8px; text-align: left; width: 140px;">CAMPAIGN</th>
-                                    <th style="padding: 6px 8px; text-align: left; width: 70px;">TASK TYPE</th>
-                                    <th style="padding: 6px 8px; text-align: left; width: 60px;">ART TYPE</th>
-                                    <th style="padding: 6px 8px; text-align: left; width: 170px;">ADDRESS</th>
+                                <tr style="background: #1e293b; color: white;">
+                                    <th style="padding: 6px; text-align: center; font-size: 8px; width: 30px;">#</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 8px; width: 140px;">VENUE</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 8px; width: 70px;">ID</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 8px; width: 100px;">LOC</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 8px; width: 180px;">CAMPAIGN</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 8px; width: 80px;">TYPE</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 8px; width: 70px;">ART</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 8px; width: 220px;">ADDRESS</th>
                                 </tr>
                             </thead>
                             <tbody>${rowsHtml}</tbody>
                         </table>
-                    </div>
-                `;
+                    </div>`;
             }
             return fullHtml;
+        }
+
+        async function downloadSinglePDF() {
+            const worker = document.getElementById('workerFilter').value;
+            if (!worker) return alert("Select worker first.");
+            const area = document.getElementById('pdf-content-area');
+            const tasks = allData.filter(d => d.worker === worker);
+            area.innerHTML = generatePrintHtml(worker, tasks);
+            const date = new Date().toISOString().split('T')[0];
+            const fileName = `${worker.replace(/ /g,'_')}_Dispatch_${date}.pdf`;
+
+            await html2pdf().set({ 
+                margin: 0, html2canvas: { scale: 2, useCORS: true }, 
+                jsPDF: { unit: 'in', format: 'letter', orientation: 'landscape' } 
+            }).from(area).toPdf().get('pdf').then(pdf => {
+                const total = pdf.internal.getNumberOfPages();
+                for (let j = 1; j <= total; j++) {
+                    pdf.setPage(j); pdf.setFontSize(8); pdf.setTextColor(150);
+                    pdf.text(`Page ${j} of ${total}`, pdf.internal.pageSize.getWidth() - 1, pdf.internal.pageSize.getHeight() - 0.3);
+                }
+            }).save(fileName);
+        }
+
+        async function batchZipPDFs() {
+            const zip = new JSZip();
+            const date = new Date().toISOString().split('T')[0];
+            const progCont = document.getElementById('progress-container');
+            const readyMsg = document.getElementById('readyMsg');
+            const statusMsg = document.getElementById('status_msg');
+            
+            progCont.classList.remove('hidden'); 
+            readyMsg.classList.add('hidden');
+
+            for (let i = 0; i < uniqueWorkers.length; i++) {
+                const w = uniqueWorkers[i];
+                statusMsg.innerText = `Generating PDF: ${w}`;
+                const area = document.getElementById('pdf-content-area');
+                area.innerHTML = generatePrintHtml(w, allData.filter(d => d.worker === w));
+
+                const blob = await html2pdf().set({ 
+                    margin: 0, html2canvas: { scale: 2, useCORS: true }, 
+                    jsPDF: { unit: 'in', format: 'letter', orientation: 'landscape' } 
+                }).from(area).toPdf().get('pdf').then(pdf => {
+                    const total = pdf.internal.getNumberOfPages();
+                    for (let j = 1; j <= total; j++) {
+                        pdf.setPage(j); pdf.setFontSize(8); pdf.setTextColor(150);
+                        pdf.text(`Page ${j} of ${total}`, pdf.internal.pageSize.getWidth() - 1, pdf.internal.pageSize.getHeight() - 0.3);
+                    }
+                }).output('blob');
+
+                zip.file(`${w.replace(/ /g,'_')}_Dispatch_${date}.pdf`, blob);
+            }
+            const c = await zip.generateAsync({ type: "blob" });
+            const a = document.createElement('a'); a.href = URL.createObjectURL(c); a.download = `Dispatch_Export_${date}.zip`; a.click();
+            
+            statusMsg.innerText = "Export Complete!";
+            setTimeout(() => {
+                progCont.classList.add('hidden'); 
+                readyMsg.classList.remove('hidden');
+            }, 1000);
         }
     </script>
 </body>
