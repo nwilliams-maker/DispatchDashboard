@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terraboost | Live Dispatch Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        body { background-color: #f1f5f9; font-family: 'Inter', sans-serif; }
+        .brand-blue { background-color: #4477ce; }
+        .data-card { border-radius: 12px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        th { background-color: #1e293b !important; color: white !important; font-weight: 800 !important; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; border: none !important; }
+        #progress-bar { transition: width 0.4s ease; }
+        #pdf-render-zone { position: absolute; left: -9999px; top: -9999px; width: 1100px; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-full mx-auto space-y-6">
+        <div class="flex flex-col lg:flex-row justify-between items-center gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <div class="flex items-center gap-3">
+                <div class="brand-blue text-white p-2 rounded-lg font-bold text-xl w-10 text-center shadow-md">TB</div>
+                <div>
+                    <h1 class="text-xl font-bold text-slate-800 tracking-tight">Onfleet Route Manager</h1>
+                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-1">Live API Dispatch Portal</p>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap gap-3">
+                <button onclick="fetchOnfleetData()" class="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-xs font-bold uppercase hover:bg-blue-700 transition-all shadow-lg">
+                    1. Sync Live Routes
+                </button>
+                
+                <select id="workerFilter" onchange="filterByWorker()" class="border-2 border-slate-100 rounded-xl px-4 py-2 text-xs font-bold outline-none bg-slate-50 text-black">
+                    <option value="">Select Worker...</option>
+                </select>
+
+                <button id="singleDownloadBtn" onclick="downloadSinglePDF()" disabled class="bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-xs font-bold uppercase shadow-lg hover:bg-emerald-700 transition-all opacity-50 cursor-not-allowed">
+                    2a. Download PDF
+                </button>
+
+                <button id="zipBtn" onclick="batchZipPDFs()" disabled class="brand-blue text-white px-5 py-2.5 rounded-xl text-xs font-bold uppercase shadow-lg hover:bg-blue-700 transition-all opacity-50 cursor-not-allowed">
+                    2b. Download ZIP (All)
+                </button>
+            </div>
+        </div>
+
+        <div id="progress-container" class="hidden space-y-2">
+            <div class="w-full bg-slate-200 rounded-full h-2">
+                <div id="progress-bar" class="bg-blue-600 h-2 rounded-full" style="width: 0%"></div>
+            </div>
+            <p id="status_msg" class="text-[10px] text-slate-500 italic text-center uppercase font-black tracking-widest"></p>
+        </div>
+
+        <div class="data-card bg-white border border-slate-200">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse" id="onfleetTable">
+                    <thead>
+                        <tr id="debugRow" class="hidden bg-yellow-50 border-b-2 border-yellow-200">
+                            <td colspan="9" class="p-4">
+                                <p class="text-[10px] font-black text-yellow-700 uppercase mb-1">Raw Data (First Task):</p>
+                                <div id="rawJSON" class="text-[9px] font-mono text-slate-700 break-all bg-white p-2 border rounded shadow-inner max-h-32 overflow-y-auto">
+                                    Waiting for data...
+                                </div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th class="p-4">Route Name</th> 
+                            <th class="p-4">Worker</th>
+                            <th class="p-4">Venue</th>
+                            <th class="p-4">Kiosk ID</th>
+                            <th class="p-4">Kiosk Location</th>
+                            <th class="p-4">Campaign</th>
+                            <th class="p-4">Task Type</th>
+                            <th class="p-4">Art Type</th>
+                            <th class="p-4">Address</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody" class="text-[11px] text-slate-600 font-medium">
+                        <tr><td colspan="9" class="p-20 text-center text-slate-300 italic text-sm">Waiting for API Sync...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="pdf-render-zone"><div id="pdf-content-area" class="bg-white"></div></div>
+
+    <script>
+        const proxyUrl = "https://script.google.com/macros/s/AKfycbwlkBy7y1NUgjAnT2Umj-FqY-5tNoUlo7yh_vOEOwmMoKy-1GlTL-fvX-L_27L8U4KK/exec";
+        
+        let allData = [];
+        let uniqueWorkers = [];
+
+        async function fetchOnfleetData() {
+            const status = document.getElementById('status_msg');
+            const progressCont = document.getElementById('progress-container');
+            const progressBar = document.getElementById('progress-bar');
+            const debugRow = document.getElementById('debugRow');
+            const rawJSONBox = document.getElementById('rawJSON');
+            
+            progressCont.classList.remove('hidden');
+            status.innerText = "Connecting to Onfleet...";
+            progressBar.style.width = "30%";
+
+            try {
+                const response = await fetch(proxyUrl);
+                const tasks = await response.json();
+
+                if (!tasks || tasks.error) throw new Error(tasks.error || "No data received.");
+
+                const taskArray = Array.isArray(tasks) ? tasks : (tasks.tasks || []);
+                
+                if (taskArray.length > 0) {
+                    debugRow.classList.remove('hidden');
+                    rawJSONBox.innerText = JSON.stringify(taskArray[0], null, 2);
+                }
+
+                status.innerText = "Mapping live data...";
+                progressBar.style.width = "70%";
+
+                allData = taskArray.map(t => {
+                    const getField = (key) => {
+                        if (t.customFields && Array.isArray(t.customFields)) {
+                            const match = t.customFields.find(f => f.key === key);
+                            return (match && match.value !== undefined) ? match.value : "N/A";
+                        }
+                        return "N/A";
+                    };
+
+                    const addr = (t.destination && t.destination.address) ? 
+                        `${t.destination.address.number || ''} ${t.destination.address.street || ''}, ${t.destination.address.city || ''}, ${t.destination.address.state || ''}`.trim() : 
+                        "N/A";
+
+                    return {
+                        // Directly use the routeName string built by the Google Apps Script
+                        routeName: t.routeName || "Manual Dispatch",
+                        worker: t.workerName || "Unassigned", 
+                        venue: getField("venueName"),
+                        kiosk: getField("kioskId"),
+                        kioskLoc: getField("locationinVenue"),
+                        campaign: getField("campaignName"),
+                        type: getField("taskType"),
+                        boost: getField("boostedStandard"),
+                        address: addr
+                    };
+                });
+
+                const workerSet = new Set(allData.map(d => d.worker));
+                uniqueWorkers = Array.from(workerSet).sort();
+                
+                const dropdown = document.getElementById('workerFilter');
+                dropdown.innerHTML = `<option value="">Select Worker (${uniqueWorkers.length})</option>`;
+                uniqueWorkers.forEach(w => { 
+                    const opt = document.createElement('option');
+                    opt.value = w;
+                    opt.textContent = w;
+                    dropdown.appendChild(opt);
+                });
+
+                renderTable(allData);
+                
+                document.getElementById('zipBtn').disabled = false;
+                document.getElementById('zipBtn').classList.remove('opacity-50', 'cursor-not-allowed');
+                document.getElementById('singleDownloadBtn').disabled = false;
+                document.getElementById('singleDownloadBtn').classList.remove('opacity-50', 'cursor-not-allowed');
+
+                status.innerText = `Sync Complete: Found ${allData.length} active tasks.`;
+                progressBar.style.width = "100%";
+
+            } catch (err) {
+                status.innerText = "Sync Failed: " + err.message;
+                console.error("Fetch Error:", err);
+            }
+        }
+
+        function renderTable(data) {
+            const tableBody = document.getElementById('tableBody');
+            tableBody.innerHTML = data.map(item => `
+                <tr class="border-b border-slate-100">
+                    <td class="p-4 font-bold text-slate-900">${item.routeName}</td>
+                    <td class="p-4 font-bold text-blue-700">${item.worker}</td>
+                    <td class="p-4">${item.venue}</td>
+                    <td class="p-4 font-mono font-bold">${item.kiosk}</td>
+                    <td class="p-4 text-emerald-600 font-bold">${item.kioskLoc}</td>
+                    <td class="p-4 italic text-slate-500">${item.campaign}</td>
+                    <td class="p-4 uppercase text-[9px]">${item.type}</td>
+                    <td class="p-4 font-black text-[9px]">${item.boost}</td>
+                    <td class="p-4 text-[10px] leading-tight">${item.address}</td>
+                </tr>
+            `).join('');
+        }
+
+        function filterByWorker() {
+            const selected = document.getElementById('workerFilter').value;
+            renderTable(selected === "" ? allData : allData.filter(d => d.worker === selected));
+        }
+
+        function getTodayDate() {
+            const d = new Date();
+            return d.toISOString().split('T')[0];
+        }
+
+        async function downloadSinglePDF() {
+            const worker = document.getElementById('workerFilter').value;
+            if (!worker) return alert("Select a worker first.");
+            const workerTasks = allData.filter(d => d.worker === worker);
+            const renderZone = document.getElementById('pdf-content-area');
+            renderZone.innerHTML = generatePrintHtml(worker, workerTasks);
+            
+            const dateStr = getTodayDate();
+            const cleanWorker = worker.replace(/[^a-z0-9]/gi, '_');
+            const fileName = `${cleanWorker}_Dispatch_${dateStr}.pdf`;
+
+            const opt = { 
+                margin: [0.15, 0.3, 0.15, 0.3], 
+                filename: fileName, 
+                html2canvas: { scale: 2 }, 
+                jsPDF: { unit: 'in', format: 'letter', orientation: 'landscape' },
+                pagebreak: { mode: ['css', 'legacy'] }
+            };
+            await html2pdf().set(opt).from(renderZone).save();
+        }
+
+        async function batchZipPDFs() {
+            const zip = new JSZip();
+            const status = document.getElementById('status_msg');
+            const progressCont = document.getElementById('progress-container');
+            const progressBar = document.getElementById('progress-bar');
+            
+            progressCont.classList.remove('hidden');
+            document.getElementById('zipBtn').disabled = true;
+            const dateStr = getTodayDate();
+
+            try {
+                for (let i = 0; i < uniqueWorkers.length; i++) {
+                    const worker = uniqueWorkers[i];
+                    const percent = Math.round((i / uniqueWorkers.length) * 100);
+                    progressBar.style.width = percent + "%";
+                    status.innerText = `Generating PDF (${i + 1}/${uniqueWorkers.length}): ${worker}`;
+
+                    const workerTasks = allData.filter(d => d.worker === worker);
+                    const renderZone = document.getElementById('pdf-content-area');
+                    renderZone.innerHTML = generatePrintHtml(worker, workerTasks);
+
+                    const opt = { 
+                        margin: [0.15, 0.3, 0.15, 0.3], 
+                        image: { type: 'jpeg', quality: 0.98 }, 
+                        html2canvas: { scale: 1.5, useCORS: true }, 
+                        jsPDF: { unit: 'in', format: 'letter', orientation: 'landscape' }
+                    };
+
+                    const pdfBlob = await html2pdf().set(opt).from(renderZone).output('blob');
+                    const cleanWorker = worker.replace(/[^a-z0-9]/gi, '_');
+                    zip.file(`${cleanWorker}_${dateStr}.pdf`, pdfBlob);
+                    await new Promise(r => setTimeout(r, 100));
+                }
+
+                status.innerText = "Creating Zip Archive...";
+                const content = await zip.generateAsync({ type: "blob" });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(content);
+                a.download = `All_Dispatches_${dateStr}.zip`;
+                a.click();
+                status.innerText = "Download Complete.";
+            } catch (err) {
+                status.innerText = "Batch failed.";
+            } finally {
+                document.getElementById('zipBtn').disabled = false;
+            }
+        }
+
+        function generatePrintHtml(worker, tasks) {
+            const batchSize = 18; 
+            let fullHtml = '';
+            for (let i = 0; i < tasks.length; i += batchSize) {
+                const batch = tasks.slice(i, i + batchSize);
+                const rowsHtml = batch.map(t => `
+                    <tr style="border-bottom: 1px solid #eee;">
+                        <td style="padding: 4px 8px; font-size: 10px; font-weight: 900; width: 100px;">${t.routeName}</td>
+                        <td style="padding: 4px 8px; font-size: 10px; font-weight: 800; width: 115px;">${t.venue}</td>
+                        <td style="padding: 4px 8px; font-size: 10px; font-weight: 800; width: 65px;">${t.kiosk}</td>
+                        <td style="padding: 4px 8px; font-size: 10px; font-weight: 900; color: #059669; width: 110px;">${t.kioskLoc}</td>
+                        <td style="padding: 4px 8px; font-size: 9px; width: 140px; color: #666;">${t.campaign}</td>
+                        <td style="padding: 4px 8px; font-size: 9px; width: 70px; font-weight: bold; text-transform: uppercase;">${t.type}</td>
+                        <td style="padding: 4px 8px; font-size: 9px; width: 60px; font-weight: 900;">${t.boost}</td>
+                        <td style="padding: 4px 8px; font-size: 9px; line-height: 1.1; width: 170px;">${t.address}</td>
+                    </tr>
+                `).join('');
+
+                fullHtml += `
+                    <div style="font-family: Arial, sans-serif; padding: 10px 30px; page-break-after: always;">
+                        <div style="display: flex; justify-content: space-between; border-bottom: 4px solid #1e293b; padding-bottom: 4px; margin-bottom: 8px;">
+                            <div>
+                                <h1 style="font-size: 18px; margin: 0; font-weight: 900;">WORK ORDER DISPATCH</h1>
+                                <p style="margin: 0; font-size: 9px; font-weight: bold; color: #4477ce;">TERRABOOST MEDIA | LIVE FEED</p>
+                            </div>
+                            <div style="text-align: right;">
+                                <h2 style="font-size: 13px; margin: 0; font-weight: 900;">${worker}</h2>
+                                <p style="margin: 0; font-size: 8px; color: #94a3b8;">Export Date: ${getTodayDate()}</p>
+                            </div>
+                        </div>
+                        <table style="width: 100%; border-collapse: collapse; table-layout: fixed;">
+                            <thead>
+                                <tr style="background: #1e293b; color: white; font-size: 8px;">
+                                    <th style="padding: 6px 8px; text-align: left; width: 100px;">ROUTE NAME</th>
+                                    <th style="padding: 6px 8px; text-align: left; width: 115px;">VENUE</th>
+                                    <th style="padding: 6px 8px; text-align: left; width: 65px;">KIOSK ID</th>
+                                    <th style="padding: 6px 8px; text-align: left; width: 110px;">KIOSK LOC</th>
+                                    <th style="padding: 8px 8px; text-align: left; width: 140px;">CAMPAIGN</th>
+                                    <th style="padding: 6px 8px; text-align: left; width: 70px;">TASK TYPE</th>
+                                    <th style="padding: 6px 8px; text-align: left; width: 60px;">ART TYPE</th>
+                                    <th style="padding: 6px 8px; text-align: left; width: 170px;">ADDRESS</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rowsHtml}</tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            return fullHtml;
+        }
+    </script>
+</body>
+</html>
