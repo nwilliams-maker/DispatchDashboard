@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terraboost | Dispatch Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { background-color: #f8fafc; font-family: 'Inter', sans-serif; }
+        .brand-gradient { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); }
+        .action-card { border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
+        th { background-color: #f1f5f9 !important; color: #475569 !important; font-weight: 800 !important; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; position: sticky; top: 0; z-index: 10; cursor: pointer; padding: 12px 16px !important; border-bottom: 2px solid #e2e8f0; }
+        th:hover { background-color: #e2e8f0 !important; }
+
+        .filter-pill {
+            display: inline-flex; align-items: center; background: #e5f0ff; color: #0073ea; 
+            padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 700; 
+            gap: 8px; border: 1px solid #0073ea; margin-right: 8px;
+        }
+        .pill-x { cursor: pointer; opacity: 0.7; }
+        .pill-x:hover { opacity: 1; }
+
+        .loader { border: 2px solid #f3f3f3; border-top: 2px solid #2563eb; border-radius: 50%; width: 18px; height: 18px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="p-4 md:p-6 lg:p-8">
+
+    <div class="max-w-[1700px] mx-auto space-y-4">
+        <div class="bg-white border border-slate-200 action-card p-5 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
+            <div class="flex items-center gap-4">
+                <div class="brand-gradient text-white p-3 rounded-xl font-black text-2xl shadow-lg">TB</div>
+                <div class="min-w-fit">
+                    <h1 class="text-xl font-extrabold text-slate-800">Dispatch Board</h1>
+                    <div class="flex items-center gap-2">
+                        <span id="syncDot" class="h-2 w-2 rounded-full bg-slate-300"></span>
+                        <p id="syncTimestamp" class="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Ready</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex flex-1 flex-wrap items-center justify-end gap-3 w-full">
+                <select id="workerDropdown" onchange="applyPillLogic()" class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none cursor-pointer hover:border-slate-400 h-10">
+                    <option value="">All Workers</option>
+                </select>
+
+                <div class="flex bg-slate-50 border border-slate-200 rounded-xl p-1 shadow-sm h-10 w-full max-w-md">
+                    <select id="filterKey" class="bg-transparent text-[10px] font-black uppercase px-2 outline-none border-r border-slate-200 text-slate-500">
+                        <option value="stateCode">State</option>
+                        <option value="venue">Venue</option>
+                        <option value="kiosk">Kiosk</option>
+                        <option value="campaign">Campaign</option>
+                    </select>
+                    <input type="text" id="filterValue" onkeydown="if(event.key==='Enter') addPill()" 
+                           placeholder="Filter & hit Enter..." 
+                           class="bg-transparent flex-1 px-3 text-xs font-semibold focus:outline-none">
+                    <button onclick="addPill()" class="bg-slate-800 text-white px-3 rounded-lg text-[10px] font-black uppercase">Add</button>
+                </div>
+
+                <button onclick="fetchOnfleetData()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-xl text-[11px] font-black uppercase shadow-md h-10 flex items-center gap-2">
+                    <div id="syncLoader" class="hidden loader !border-white !border-t-transparent"></div> Sync
+                </button>
+            </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-4">
+            <div id="pillBar" class="hidden flex-1 bg-white border border-slate-200 p-2 rounded-xl flex items-center shadow-sm">
+                <div id="pillContainer" class="flex flex-wrap gap-1"></div>
+                <button onclick="clearAll()" class="text-[10px] font-bold text-blue-600 hover:underline ml-3">Reset</button>
+            </div>
+            
+            <div class="bg-white border border-slate-200 px-4 py-2 rounded-xl flex items-center gap-4 shadow-sm min-w-fit">
+                <div class="flex items-center gap-2 pr-4 border-r border-slate-100">
+                    <p class="text-[9px] font-black text-slate-400 uppercase">Tasks</p>
+                    <h3 id="statTasks" class="text-sm font-black text-slate-800">0</h3>
+                </div>
+                <div class="flex items-center gap-2 pr-4 border-r border-slate-100">
+                    <p class="text-[9px] font-black text-slate-400 uppercase">Workers</p>
+                    <h3 id="statWorkers" class="text-sm font-black text-slate-800">0</h3>
+                </div>
+                <button id="pdfBtn" onclick="downloadSinglePDF()" disabled class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                    PDF Download
+                </button>
+            </div>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div class="overflow-x-auto max-h-[750px]">
+                <table class="w-full text-left border-collapse" id="onfleetTable">
+                    <thead>
+                        <tr>
+                            <th class="w-12 text-center">#</th>
+                            <th onclick="sortData('assignedDate')">Date</th>
+                            <th onclick="sortData('worker')">Worker</th>
+                            <th onclick="sortData('venue')">Venue</th>
+                            <th onclick="sortData('kiosk')">Kiosk ID</th>
+                            <th onclick="sortData('kioskLoc')">Kiosk Location</th>
+                            <th onclick="sortData('campaign')">Campaign</th>
+                            <th onclick="sortData('type')">Type</th>
+                            <th onclick="sortData('boost')">Art</th>
+                            <th onclick="sortData('address')">Address</th>
+                            <th onclick="sortData('stateCode')">State</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody" class="text-[11px] text-slate-600 font-medium">
+                        <tr><td colspan="11" class="p-32 text-center text-slate-300 italic">No live data loaded.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="pdf-render-zone"><div id="pdf-content-area"></div></div>
+
+    <script>
+        const proxyUrl = "https://script.google.com/macros/s/AKfycbwlkBy7y1NUgjAnT2Umj-FqY-5tNoUlo7yh_vOEOwmMoKy-1GlTL-fvX-L_27L8U4KK/exec";
+        let allData = [];
+        let filteredData = [];
+        let activePills = [];
+        let sortDirection = true;
+
+        async function fetchOnfleetData() {
+            document.getElementById('syncLoader').classList.remove('hidden');
+            try {
+                const response = await fetch(proxyUrl);
+                const tasks = await response.json();
+                allData = tasks.map(t => {
+                    const getField = (k) => t.customFields?.find(f => f.key === k)?.value || "N/A";
+                    let dStr = "N/A";
+                    if (t.timeCreated) {
+                        const d = new Date(t.timeCreated);
+                        dStr = (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear();
+                    }
+                    return {
+                        assignedDate: dStr, worker: t.workerName || "Unassigned", venue: getField("venueName"),
+                        kiosk: getField("kioskId"), kioskLoc: getField("locationinVenue"),
+                        campaign: getField("campaignName"), type: getField("taskType"),
+                        boost: getField("boostedStandard"), address: t.destination?.address ? `${t.destination.address.number} ${t.destination.address.street}, ${t.destination.address.city}` : "N/A",
+                        stateCode: t.destination?.address?.state || "N/A"
+                    };
+                });
+
+                const uniqueWorkers = Array.from(new Set(allData.map(d => d.worker))).sort();
+                document.getElementById('workerDropdown').innerHTML = `<option value="">All Workers</option>` + 
+                    uniqueWorkers.map(w => `<option value="${w}">${w}</option>`).join('');
+
+                applyPillLogic();
+                document.getElementById('statTasks').innerText = allData.length;
+                document.getElementById('statWorkers').innerText = uniqueWorkers.length;
+                document.getElementById('syncTimestamp').innerText = `Synced: ${new Date().toLocaleTimeString()}`;
+                document.getElementById('syncDot').className = 'h-2 w-2 rounded-full bg-emerald-500';
+                
+                document.getElementById('pdfBtn').disabled = false;
+            } catch (e) { console.error(e); }
+            document.getElementById('syncLoader').classList.add('hidden');
+        }
+
+        function addPill() {
+            const key = document.getElementById('filterKey').value;
+            const val = document.getElementById('filterValue').value.trim();
+            const label = document.getElementById('filterKey').options[document.getElementById('filterKey').selectedIndex].text;
+            if (val) {
+                activePills.push({ key, val, label });
+                document.getElementById('filterValue').value = '';
+                applyPillLogic();
+            }
+        }
+
+        function removePill(idx) {
+            activePills.splice(idx, 1);
+            applyPillLogic();
+        }
+
+        function clearAll() {
+            activePills = [];
+            document.getElementById('workerDropdown').value = '';
+            applyPillLogic();
+        }
+
+        function applyPillLogic() {
+            const bar = document.getElementById('pillBar');
+            const container = document.getElementById('pillContainer');
+            const dropdownWorker = document.getElementById('workerDropdown').value;
+
+            if (activePills.length > 0) {
+                bar.classList.remove('hidden');
+                container.innerHTML = activePills.map((p, i) => `
+                    <div class="filter-pill">${p.label}: ${p.val} <span class="pill-x" onclick="removePill(${i})">✕</span></div>
+                `).join('');
+            } else { bar.classList.add('hidden'); }
+
+            filteredData = allData.filter(row => {
+                const matchesPills = activePills.every(p => String(row[p.key]).toLowerCase().includes(p.val.toLowerCase()));
+                const matchesDropdown = dropdownWorker === "" || row.worker === dropdownWorker;
+                return matchesPills && matchesDropdown;
+            });
+
+            renderTable(filteredData);
+            document.getElementById('pdfBtn').disabled = filteredData.length === 0;
+        }
+
+        function renderTable(data) {
+            document.getElementById('tableBody').innerHTML = data.map((item, index) => `
+                <tr class="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                    <td class="p-4 text-center text-slate-400 font-bold">${index + 1}</td>
+                    <td class="p-4 font-bold text-slate-500">${item.assignedDate}</td>
+                    <td class="p-4 font-bold text-blue-600">${item.worker}</td>
+                    <td class="p-4">${item.venue}</td>
+                    <td class="p-4 font-mono font-bold">${item.kiosk}</td>
+                    <td class="p-4 font-black text-emerald-600">${item.kioskLoc}</td>
+                    <td class="p-4 text-slate-400 italic">${item.campaign}</td>
+                    <td class="p-4 uppercase font-bold text-[10px]">${item.type}</td>
+                    <td class="p-4 font-black text-slate-800">${item.boost}</td>
+                    <td class="p-4 text-[10px] leading-tight text-slate-400">${item.address}</td>
+                    <td class="p-4 font-black text-slate-900">${item.stateCode}</td>
+                </tr>
+            `).join('');
+        }
+
+        function sortData(key) {
+            sortDirection = !sortDirection;
+            filteredData.sort((a, b) => {
+                const vA = String(a[key]).toLowerCase();
+                const vB = String(b[key]).toLowerCase();
+                return sortDirection ? vA.localeCompare(vB) : vB.localeCompare(vA);
+            });
+            renderTable(filteredData);
+        }
+
+        function generatePrintHtml(worker, tasks) {
+            const batchSize = 22;
+            let fullHtml = '';
+            const today = new Date().toLocaleDateString();
+            for (let i = 0; i < tasks.length; i += batchSize) {
+                const batch = tasks.slice(i, i + batchSize);
+                const rowsHtml = batch.map((t, idx) => `
+                    <tr style="border-bottom: 1px solid #e2e8f0; vertical-align: top;">
+                        <td style="padding: 6px; font-size: 9px; font-weight: 900; color: #94a3b8; width: 30px; text-align: center;">${i + idx + 1}</td>
+                        <td style="padding: 6px; font-size: 9px; font-weight: 700; width: 140px;">${t.venue}</td>
+                        <td style="padding: 6px; font-size: 9px; font-weight: 700; width: 70px; font-family: monospace;">${t.kiosk}</td>
+                        <td style="padding: 6px; font-size: 9px; font-weight: 900; color: #059669; width: 100px;">${t.kioskLoc}</td>
+                        <td style="padding: 6px; font-size: 8.5px; width: 180px; color: #475569;">${t.campaign}</td>
+                        <td style="padding: 6px; font-size: 8.5px; width: 80px; font-weight: bold;">${t.type}</td>
+                        <td style="padding: 6px; font-size: 8.5px; width: 70px; font-weight: 900;">${t.boost}</td>
+                        <td style="padding: 6px; font-size: 8.5px; line-height: 1.2; width: 220px;">${t.address}</td>
+                    </tr>
+                `).join('');
+                fullHtml += `
+                    <div style="padding: 0.3in; background: white; page-break-after: always; font-family: 'Inter', sans-serif;">
+                        <div style="display: flex; justify-content: space-between; border-bottom: 4px solid #1e293b; padding-bottom: 8px; margin-bottom: 15px;">
+                            <div><h1 style="font-size: 18px; margin: 0; font-weight: 800;">DISPATCH WORKLOAD</h1><p style="margin: 0; font-size: 9px; font-weight: 800; color: #4477ce;">TERRABOOST MEDIA</p></div>
+                            <div style="text-align: right;"><h2 style="font-size: 13px; margin: 0; font-weight: 800;">${worker}</h2><p style="margin: 0; font-size: 8px; font-weight: 700;">DATED: ${today}</p></div>
+                        </div>
+                        <table style="width: 100%; border-collapse: collapse; table-layout: fixed;">
+                            <thead>
+                                <tr style="background: #1e293b; color: white;">
+                                    <th style="padding: 6px; text-align: center; font-size: 8px; width: 30px;">#</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 8px; width: 140px;">VENUE</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 8px; width: 70px;">KIOSK ID</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 8px; width: 100px;">KIOSK LOCATION</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 8px; width: 180px;">CAMPAIGN</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 8px; width: 80px;">TYPE</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 8px; width: 70px;">ART</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 8px; width: 220px;">ADDRESS</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rowsHtml}</tbody>
+                        </table>
+                    </div>`;
+            }
+            return fullHtml;
+        }
+
+        async function downloadSinglePDF() {
+            if (filteredData.length === 0) return alert("Select worker or filter list first.");
+            const worker = filteredData[0].worker;
+            const area = document.getElementById('pdf-content-area');
+            area.innerHTML = generatePrintHtml(worker, filteredData.filter(d => d.worker === worker));
+            const date = new Date().toISOString().split('T')[0];
+            const fileName = `${worker.replace(/ /g,'_')}_Dispatch_${date}.pdf`;
+            await html2pdf().set({ 
+                margin: 0, html2canvas: { scale: 2, useCORS: true }, 
+                jsPDF: { unit: 'in', format: 'letter', orientation: 'landscape' } 
+            }).from(area).save(fileName);
+        }
+    </script>
+</body>
+</html>
