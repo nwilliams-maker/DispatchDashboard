@@ -6,124 +6,133 @@
     <title>Terraboost | Dispatch Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        body { background-color: #f8fafc; font-family: 'Inter', sans-serif; }
-        .brand-gradient { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); }
-        .action-card { border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
-        th { background-color: #f1f5f9 !important; color: #475569 !important; font-weight: 800 !important; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; position: sticky; top: 0; z-index: 10; cursor: pointer; padding: 12px 16px !important; border-bottom: 2px solid #e2e8f0; }
-        th:hover { background-color: #e2e8f0 !important; }
-
-        .filter-pill { display: inline-flex; align-items: center; background: #e5f0ff; color: #0073ea; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 700; gap: 8px; border: 1px solid #0073ea; margin-right: 8px; }
-        .pill-x { cursor: pointer; opacity: 0.7; }
-        .pill-x:hover { opacity: 1; }
-
-        /* Pod Toggle Styling */
-        .pod-btn { padding: 8px 16px; border-radius: 8px; font-size: 11px; font-weight: 800; text-transform: uppercase; transition: all 0.2s; border: 2px solid transparent; opacity: 0.6; }
-        .pod-btn:hover { opacity: 1; transform: translateY(-1px); }
-        .pod-btn.active { opacity: 1; border-color: #1e293b; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        body { background-color: #f8fafc; font-family: 'Inter', sans-serif; color: #1e293b; }
+        .brand-gradient { background: linear-gradient(135deg, #0f172a 0%, #334155 100%); }
+        .action-card { border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #e2e8f0; }
         
-        .pod-orange { background-color: #ffedd5; color: #9a3412; }
-        .pod-green { background-color: #dcfce7; color: #166534; }
-        .pod-red { background-color: #fee2e2; color: #991b1b; }
-        .pod-blue { background-color: #e0f2fe; color: #075985; }
-        .pod-purple { background-color: #f3e8ff; color: #6b21a8; }
+        /* Modernized Table Headers */
+        th { 
+            background-color: #f8fafc !important; color: #64748b !important; font-weight: 700 !important; 
+            text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; position: sticky; 
+            top: 0; z-index: 10; cursor: pointer; padding: 14px 16px !important; border-bottom: 1px solid #e2e8f0; 
+        }
+        th:hover { color: #2563eb !important; background-color: #f1f5f9 !important; }
 
-        .loader { border: 2px solid #f3f3f3; border-top: 2px solid #2563eb; border-radius: 50%; width: 18px; height: 18px; animation: spin 1s linear infinite; }
+        /* Pod View Buttons */
+        .pod-btn { padding: 6px 14px; border-radius: 6px; font-size: 10px; font-weight: 700; text-transform: uppercase; transition: all 0.2s; border: 1px solid transparent; opacity: 0.7; }
+        .pod-btn:hover { opacity: 1; border-color: rgba(0,0,0,0.1); }
+        .pod-btn.active { opacity: 1; ring: 2px; ring-offset: 1px; ring-color: #94a3b8; border-color: #1e293b; }
+        
+        .pod-orange { background-color: #fff7ed; color: #9a3412; border-color: #ffedd5; }
+        .pod-green { background-color: #f0fdf4; color: #166534; border-color: #dcfce7; }
+        .pod-red { background-color: #fef2f2; color: #991b1b; border-color: #fee2e2; }
+        .pod-blue { background-color: #f0f9ff; color: #075985; border-color: #e0f2fe; }
+        .pod-purple { background-color: #faf5ff; color: #6b21a8; border-color: #f3e8ff; }
+
+        .loader { border: 2px solid #e2e8f0; border-top: 2px solid #ffffff; border-radius: 50%; width: 16px; height: 16px; animation: spin 0.8s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        select, input { outline: none !important; }
+        .custom-select { appearance: none; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 0.7rem center; background-size: 1em; }
     </style>
 </head>
 <body class="p-4 md:p-6 lg:p-8">
 
-    <div class="max-w-[1700px] mx-auto space-y-4">
+    <div class="max-w-[1750px] mx-auto space-y-4">
         
-        <div class="flex flex-wrap items-center gap-2 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
-            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-2 ml-1">Pod View:</span>
-            <button id="btnOrange" onclick="togglePod('Orange', this)" class="pod-btn pod-orange">Orange</button>
-            <button id="btnGreen" onclick="togglePod('Green', this)" class="pod-btn pod-green">Green</button>
-            <button id="btnRed" onclick="togglePod('Red', this)" class="pod-btn pod-red">Red</button>
-            <button id="btnBlue" onclick="togglePod('Blue', this)" class="pod-btn pod-blue">Blue</button>
-            <button id="btnPurple" onclick="togglePod('Purple', this)" class="pod-btn pod-purple">Purple</button>
-            <button onclick="togglePod(null, this)" class="ml-auto text-[10px] font-bold text-slate-500 hover:text-slate-800 uppercase underline">Show All States</button>
-        </div>
-
-        <div class="bg-white border border-slate-200 action-card p-5 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
-            <div class="flex items-center gap-4">
-                <div class="brand-gradient text-white p-3 rounded-xl font-black text-2xl shadow-lg">TB</div>
-                <div class="min-w-fit">
-                    <h1 class="text-xl font-extrabold text-slate-800">Dispatch Board</h1>
-                    <div class="flex items-center gap-2">
-                        <span id="syncDot" class="h-2 w-2 rounded-full bg-slate-300"></span>
-                        <p id="syncTimestamp" class="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Ready</p>
-                    </div>
+        <div class="flex flex-wrap items-center justify-between gap-4 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+            <div class="flex items-center gap-2">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-tighter ml-1">Pod View</span>
+                <div class="flex gap-1.5 ml-2">
+                    <button onclick="togglePod('Orange', this)" class="pod-btn pod-orange">Orange</button>
+                    <button onclick="togglePod('Green', this)" class="pod-btn pod-green">Green</button>
+                    <button onclick="togglePod('Red', this)" class="pod-btn pod-red">Red</button>
+                    <button onclick="togglePod('Blue', this)" class="pod-btn pod-blue">Blue</button>
+                    <button onclick="togglePod('Purple', this)" class="pod-btn pod-purple">Purple</button>
+                    <button onclick="togglePod(null, this)" class="text-[10px] font-semibold text-slate-400 hover:text-slate-600 uppercase px-3">All</button>
                 </div>
-            </div>
-
-            <div class="flex flex-1 flex-wrap items-center justify-end gap-3 w-full">
-                <select id="workerDropdown" onchange="applyPillLogic()" class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none cursor-pointer hover:border-slate-400 h-10">
-                    <option value="">All Workers</option>
-                </select>
-
-                <div class="flex bg-slate-50 border border-slate-200 rounded-xl p-1 shadow-sm h-10 w-full max-w-md">
-                    <select id="filterKey" class="bg-transparent text-[10px] font-black uppercase px-2 outline-none border-r border-slate-200 text-slate-500">
-                        <option value="stateCode">State</option>
-                        <option value="venue">Venue</option>
-                        <option value="kiosk">Kiosk</option>
-                        <option value="campaign">Campaign</option>
-                    </select>
-                    <input type="text" id="filterValue" onkeydown="if(event.key==='Enter') addPill()" 
-                           placeholder="Filter & hit Enter..." 
-                           class="bg-transparent flex-1 px-3 text-xs font-semibold focus:outline-none">
-                    <button onclick="addPill()" class="bg-slate-800 text-white px-3 rounded-lg text-[10px] font-black uppercase">Add</button>
-                </div>
-
-                <button onclick="fetchOnfleetData()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-xl text-[11px] font-black uppercase shadow-md h-10 flex items-center gap-2">
-                    <div id="syncLoader" class="hidden loader !border-white !border-t-transparent"></div> Sync
-                </button>
-            </div>
-        </div>
-
-        <div class="flex flex-wrap items-center justify-between gap-4">
-            <div id="pillBar" class="hidden flex-1 bg-white border border-slate-200 p-2 rounded-xl flex items-center shadow-sm">
-                <div id="pillContainer" class="flex flex-wrap gap-1"></div>
-                <button onclick="clearAll()" class="text-[10px] font-bold text-blue-600 hover:underline ml-3 whitespace-nowrap">Reset All</button>
             </div>
             
-            <div class="bg-white border border-slate-200 px-4 py-2 rounded-xl flex items-center gap-4 shadow-sm min-w-fit">
-                <div class="flex items-center gap-2 pr-4 border-r border-slate-100">
-                    <p class="text-[9px] font-black text-slate-400 uppercase">Tasks</p>
-                    <h3 id="statTasks" class="text-sm font-black text-slate-800">0</h3>
-                </div>
-                <div class="flex items-center gap-2 pr-4 border-r border-slate-100">
-                    <p class="text-[9px] font-black text-slate-400 uppercase">Workers</p>
-                    <h3 id="statWorkers" class="text-sm font-black text-slate-800">0</h3>
-                </div>
-                <button id="pdfBtn" onclick="downloadSinglePDF()" disabled class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                    PDF Download
-                </button>
+            <div class="flex-1 max-w-md relative">
+                <span class="absolute left-3 top-2.5 text-slate-300">🔍</span>
+                <input type="text" id="masterSearch" onkeyup="applyFilters()" placeholder="Search anything on the board..." 
+                       class="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 pl-9 pr-4 text-sm focus:border-blue-400 focus:bg-white transition-all shadow-sm">
             </div>
         </div>
 
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-            <div class="overflow-x-auto max-h-[750px]">
+        <div class="bg-white action-card p-6">
+            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+                <div class="flex items-center gap-4">
+                    <div class="brand-gradient text-white w-14 h-14 flex items-center justify-center rounded-xl font-bold text-2xl shadow-lg shadow-slate-200">TB</div>
+                    <div>
+                        <h1 class="text-2xl font-bold tracking-tight text-slate-900">Dispatch Dashboard</h1>
+                        <div class="flex items-center gap-2 mt-1">
+                            <span id="syncDot" class="h-2 w-2 rounded-full bg-slate-200"></span>
+                            <p id="syncTimestamp" class="text-[10px] text-slate-400 font-bold uppercase">Ready to Sync</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex flex-1 flex-wrap items-center justify-end gap-2 w-full">
+                    <select id="workerDropdown" onchange="applyFilters(true)" class="custom-select bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-700 hover:border-slate-300 transition-all w-full md:w-52 h-11">
+                        <option value="">All Workers</option>
+                    </select>
+
+                    <select id="venueDropdown" onchange="applyFilters()" class="custom-select bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-700 hover:border-slate-300 transition-all w-full md:w-52 h-11">
+                        <option value="">All Venues</option>
+                    </select>
+
+                    <select id="typeDropdown" onchange="applyFilters()" class="custom-select bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-700 hover:border-slate-300 transition-all w-full md:w-52 h-11">
+                        <option value="">All Types</option>
+                    </select>
+
+                    <button id="syncBtn" onclick="fetchOnfleetData()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg text-sm font-bold uppercase transition-all shadow-sm h-11 min-w-[100px] flex items-center justify-center gap-2">
+                        <div id="syncLoader" class="hidden loader"></div>
+                        <span id="syncText">SYNC</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex items-center justify-between px-1">
+            <div class="flex gap-2">
+                <div class="bg-white border border-slate-200 px-4 py-1.5 rounded-lg flex items-center gap-3 shadow-sm">
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Tasks</span>
+                    <span id="statTasks" class="text-sm font-bold text-slate-900">0</span>
+                </div>
+                <div class="bg-white border border-slate-200 px-4 py-1.5 rounded-lg flex items-center gap-3 shadow-sm">
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Active Workers</span>
+                    <span id="statWorkers" class="text-sm font-bold text-slate-900">0</span>
+                </div>
+            </div>
+            
+            <button id="pdfBtn" onclick="downloadSinglePDF()" disabled class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-[10px] font-extrabold uppercase tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-sm">
+                PDF Download
+            </button>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+            <div class="overflow-x-auto max-h-[700px]">
                 <table class="w-full text-left border-collapse" id="onfleetTable">
                     <thead>
                         <tr>
-                            <th class="w-12 text-center">#</th>
-                            <th onclick="sortData('assignedDate')">Date</th>
-                            <th onclick="sortData('worker')">Worker</th>
-                            <th onclick="sortData('venue')">Venue</th>
-                            <th onclick="sortData('kiosk')">Kiosk ID</th>
-                            <th onclick="sortData('kioskLoc')">Loc</th>
-                            <th onclick="sortData('campaign')">Campaign</th>
-                            <th onclick="sortData('type')">Type</th>
-                            <th onclick="sortData('boost')">Art</th>
-                            <th onclick="sortData('address')">Address</th>
-                            <th onclick="sortData('stateCode')">ST</th>
+                            <th style="width: 45px;">#</th>
+                            <th>Date</th>
+                            <th>Worker</th>
+                            <th>Venue</th>
+                            <th>Kiosk ID</th>
+                            <th>Kiosk Location</th>
+                            <th>Campaign</th>
+                            <th>Type</th>
+                            <th>Art</th>
+                            <th>Address</th>
+                            <th>State</th>
                         </tr>
                     </thead>
-                    <tbody id="tableBody" class="text-[11px] text-slate-600 font-medium">
-                        <tr><td colspan="11" class="p-32 text-center text-slate-300 italic">No live data loaded.</td></tr>
+                    <tbody id="tableBody" class="text-[12px] text-slate-600 font-medium">
+                        <tr><td colspan="11" class="p-32 text-center text-slate-300 italic text-base">Press Sync to start...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -136,25 +145,16 @@
         const proxyUrl = "https://script.google.com/macros/s/AKfycbwlkBy7y1NUgjAnT2Umj-FqY-5tNoUlo7yh_vOEOwmMoKy-1GlTL-fvX-L_27L8U4KK/exec";
         let allData = [];
         let filteredData = [];
-        let activePills = [];
-        let sortDirection = true;
         let activePod = null;
 
-        // Smart Mapping for Full Names or Abbreviations
-        const stateToAbbr = {
-            'ALABAMA': 'AL', 'ALASKA': 'AK', 'ARIZONA': 'AZ', 'ARKANSAS': 'AR', 'CALIFORNIA': 'CA', 'COLORADO': 'CO', 'CONNECTICUT': 'CT', 'DELAWARE': 'DE', 'FLORIDA': 'FL', 'GEORGIA': 'GA', 'HAWAII': 'HI', 'IDAHO': 'ID', 'ILLINOIS': 'IL', 'INDIANA': 'IN', 'IOWA': 'IA', 'KANSAS': 'KS', 'KENTUCKY': 'KY', 'LOUISIANA': 'LA', 'MAINE': 'ME', 'MARYLAND': 'MD', 'MASSACHUSETTS': 'MA', 'MICHIGAN': 'MI', 'MINNESOTA': 'MN', 'MISSISSIPPI': 'MS', 'MISSOURI': 'MO', 'MONTANA': 'MT', 'NEBRASKA': 'NE', 'NEVADA': 'NV', 'NEW HAMPSHIRE': 'NH', 'NEW JERSEY': 'NJ', 'NEW MEXICO': 'NM', 'NEW YORK': 'NY', 'NORTH CAROLINA': 'NC', 'NORTH DAKOTA': 'ND', 'OHIO': 'OH', 'OKLAHOMA': 'OK', 'OREGON': 'OR', 'PENNSYLVANIA': 'PA', 'RHODE ISLAND': 'RI', 'SOUTH CAROLINA': 'SC', 'SOUTH DAKOTA': 'SD', 'TENNESSEE': 'TN', 'TEXAS': 'TX', 'UTAH': 'UT', 'VERMONT': 'VT', 'VIRGINIA': 'VA', 'WASHINGTON': 'WA', 'WEST VIRGINIA': 'WV', 'WISCONSIN': 'WI', 'WYOMING': 'WY', 'DISTRICT OF COLUMBIA': 'DC'
-        };
-
-        const podMap = [
-            {"State": "AK", "Pod": "Orange"}, {"State": "AZ", "Pod": "Orange"}, {"State": "CA", "Pod": "Orange"}, {"State": "HI", "Pod": "Orange"}, {"State": "ID", "Pod": "Orange"}, {"State": "NV", "Pod": "Orange"}, {"State": "OR", "Pod": "Orange"}, {"State": "WA", "Pod": "Orange"},
-            {"State": "CO", "Pod": "Green"}, {"State": "DC", "Pod": "Green"}, {"State": "GA", "Pod": "Green"}, {"State": "IN", "Pod": "Green"}, {"State": "KY", "Pod": "Green"}, {"State": "MD", "Pod": "Green"}, {"State": "NJ", "Pod": "Green"}, {"State": "OH", "Pod": "Green"}, {"State": "UT", "Pod": "Green"},
-            {"State": "CT", "Pod": "Red"}, {"State": "DE", "Pod": "Red"}, {"State": "MA", "Pod": "Red"}, {"State": "ME", "Pod": "Red"}, {"State": "NH", "Pod": "Red"}, {"State": "NY", "Pod": "Red"}, {"State": "PA", "Pod": "Red"}, {"State": "RI", "Pod": "Red"}, {"State": "VA", "Pod": "Red"}, {"State": "VT", "Pod": "Red"}, {"State": "WV", "Pod": "Red"},
-            {"State": "AL", "Pod": "Blue"}, {"State": "AR", "Pod": "Blue"}, {"State": "FL", "Pod": "Blue"}, {"State": "IA", "Pod": "Blue"}, {"State": "IL", "Pod": "Blue"}, {"State": "LA", "Pod": "Blue"}, {"State": "MI", "Pod": "Blue"}, {"State": "MN", "Pod": "Blue"}, {"State": "MO", "Pod": "Blue"}, {"State": "MS", "Pod": "Blue"}, {"State": "NC", "Pod": "Blue"}, {"State": "SC", "Pod": "Blue"}, {"State": "WI", "Pod": "Blue"},
-            {"State": "KS", "Pod": "Purple"}, {"State": "MT", "Pod": "Purple"}, {"State": "ND", "Pod": "Purple"}, {"State": "NE", "Pod": "Purple"}, {"State": "NM", "Pod": "Purple"}, {"State": "OK", "Pod": "Purple"}, {"State": "SD", "Pod": "Purple"}, {"State": "TN", "Pod": "Purple"}, {"State": "TX", "Pod": "Purple"}, {"State": "WY", "Pod": "Purple"}
-        ];
+        const stateToAbbr = {'ALABAMA':'AL','ALASKA':'AK','ARIZONA':'AZ','ARKANSAS':'AR','CALIFORNIA':'CA','COLORADO':'CO','CONNECTICUT':'CT','DELAWARE':'DE','FLORIDA':'FL','GEORGIA':'GA','HAWAII':'HI','IDAHO':'ID','ILLINOIS':'IL','INDIANA':'IN','IOWA':'IA','KANSAS':'KS','KENTUCKY':'KY','LOUISIANA':'LA','MAINE':'ME','MARYLAND':'MD','MASSACHUSETTS':'MA','MICHIGAN':'MI','MINNESOTA':'MN','MISSISSIPPI':'MS','MISSOURI':'MO','MONTANA':'MT','NEBRASKA':'NE','NEVADA':'NV','NEW HAMPSHIRE':'NH','NEW JERSEY':'NJ','NEW MEXICO':'NM','NEW YORK':'NY','NORTH CAROLINA':'NC','NORTH DAKOTA':'ND','OHIO':'OH','OKLAHOMA':'OK','OREGON':'OR','PENNSYLVANIA':'PA','RHODE ISLAND':'RI','SOUTH CAROLINA':'SC','SOUTH DAKOTA':'SD','TENNESSEE':'TN','TEXAS':'TX','UTAH':'UT','VERMONT':'VT','VIRGINIA':'VA','WASHINGTON':'WA','WEST VIRGINIA':'WV','WISCONSIN':'WI','WYOMING':'WY','DISTRICT OF COLUMBIA':'DC'};
+        const podMap = [{"State":"AK","Pod":"Orange"},{"State":"AZ","Pod":"Orange"},{"State":"CA","Pod":"Orange"},{"State":"HI","Pod":"Orange"},{"State":"ID","Pod":"Orange"},{"State":"NV","Pod":"Orange"},{"State":"OR","Pod":"Orange"},{"State":"WA","Pod":"Orange"},{"State":"CO","Pod":"Green"},{"State":"DC","Pod":"Green"},{"State":"GA","Pod":"Green"},{"State":"IN","Pod":"Green"},{"State":"KY","Pod":"Green"},{"State":"MD","Pod":"Green"},{"State":"NJ","Pod":"Green"},{"State":"OH","Pod":"Green"},{"State":"UT","Pod":"Green"},{"State":"CT","Pod":"Red"},{"State":"DE","Pod":"Red"},{"State":"MA","Pod":"Red"},{"State":"ME","Pod":"Red"},{"State":"NH","Pod":"Red"},{"State":"NY","Pod":"Red"},{"State":"PA","Pod":"Red"},{"State":"RI","Pod":"Red"},{"State":"VA","Pod":"Red"},{"State":"VT","Pod":"Red"},{"State":"WV","Pod":"Red"},{"State":"AL","Pod":"Blue"},{"State":"AR","Pod":"Blue"},{"State":"FL","Pod":"Blue"},{"State":"IA","Pod":"Blue"},{"State":"IL","Pod":"Blue"},{"State":"LA","Pod":"Blue"},{"State":"MI","Pod":"Blue"},{"State":"MN","Pod":"Blue"},{"State":"MO","Pod":"Blue"},{"State":"MS","Pod":"Blue"},{"State":"NC","Pod":"Blue"},{"State":"SC","Pod":"Blue"},{"State":"WI","Pod":"Blue"},{"State":"KS","Pod":"Purple"},{"State":"MT","Pod":"Purple"},{"State":"ND","Pod":"Purple"},{"State":"NE","Pod":"Purple"},{"State":"NM","Pod":"Purple"},{"State":"OK","Pod":"Purple"},{"State":"SD","Pod":"Purple"},{"State":"TN","Pod":"Purple"},{"State":"TX","Pod":"Purple"},{"State":"WY","Pod":"Purple"}];
 
         async function fetchOnfleetData() {
-            document.getElementById('syncLoader').classList.remove('hidden');
+            const loader = document.getElementById('syncLoader');
+            const syncText = document.getElementById('syncText');
+            loader.classList.remove('hidden'); syncText.classList.add('hidden');
+            
             try {
                 const response = await fetch(proxyUrl);
                 const tasks = await response.json();
@@ -162,17 +162,15 @@
                     const getField = (k) => t.customFields?.find(f => f.key === k)?.value || "N/A";
                     const taskType = getField("taskType");
                     if (taskType.toLowerCase().includes("reinstallation")) return acc;
-
+                    
                     let dStr = "N/A";
                     if (t.timeCreated) {
                         const d = new Date(t.timeCreated);
                         dStr = (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear();
                     }
-
                     const rawState = t.destination?.address?.state || "N/A";
-                    // Normalize State to 2 letters
                     const normalizedState = stateToAbbr[rawState.toUpperCase()] || rawState.toUpperCase();
-
+                    
                     acc.push({
                         assignedDate: dStr, worker: t.workerName || "Unassigned", venue: getField("venueName"),
                         kiosk: getField("kioskId"), kioskLoc: getField("locationinVenue"),
@@ -183,69 +181,62 @@
                     return acc;
                 }, []);
 
-                const uniqueWorkers = Array.from(new Set(allData.map(d => d.worker))).sort();
-                document.getElementById('workerDropdown').innerHTML = `<option value="">All Workers</option>` + uniqueWorkers.map(w => `<option value="${w}">${w}</option>`).join('');
-
-                applyPillLogic();
+                applyFilters();
                 document.getElementById('syncTimestamp').innerText = `Synced: ${new Date().toLocaleTimeString()}`;
                 document.getElementById('syncDot').className = 'h-2 w-2 rounded-full bg-emerald-500';
                 document.getElementById('pdfBtn').disabled = false;
-            } catch (e) { console.error(e); }
-            document.getElementById('syncLoader').classList.add('hidden');
+            } catch (e) { alert("Sync failed."); } finally {
+                loader.classList.add('hidden'); syncText.classList.remove('hidden');
+            }
         }
 
         function togglePod(podColor, btn) {
             activePod = podColor;
             document.querySelectorAll('.pod-btn').forEach(b => b.classList.remove('active'));
             if (btn && podColor) btn.classList.add('active');
-            applyPillLogic();
+            applyFilters();
         }
 
-        function addPill() {
-            const key = document.getElementById('filterKey').value;
-            const val = document.getElementById('filterValue').value.trim();
-            const label = document.getElementById('filterKey').options[document.getElementById('filterKey').selectedIndex].text;
-            if (val) {
-                activePills.push({ key, val, label });
-                document.getElementById('filterValue').value = '';
-                applyPillLogic();
-            }
+        function updateWorkerDropdown(relevantData) {
+            const dropdown = document.getElementById('workerDropdown');
+            const currentVal = dropdown.value;
+            const workers = [...new Set(relevantData.map(d => d.worker))].sort();
+            dropdown.innerHTML = '<option value="">All Workers (' + workers.length + ')</option>' + 
+                workers.map(w => `<option value="${w}" ${w === currentVal ? 'selected' : ''}>${w}</option>`).join('');
         }
 
-        function removePill(idx) {
-            activePills.splice(idx, 1);
-            applyPillLogic();
-        }
+        function applyFilters(isWorkerManualChange = false) {
+            const venue = document.getElementById('venueDropdown').value;
+            const type = document.getElementById('typeDropdown').value;
+            const search = document.getElementById('masterSearch').value.toLowerCase();
+            const selectedWorker = document.getElementById('workerDropdown').value;
 
-        function clearAll() {
-            activePills = [];
-            document.getElementById('workerDropdown').value = '';
-            togglePod(null, null); // Clear pod button state too
-            applyPillLogic();
-        }
-
-        function applyPillLogic() {
-            const bar = document.getElementById('pillBar');
-            const container = document.getElementById('pillContainer');
-            const dropdownWorker = document.getElementById('workerDropdown').value;
-
-            if (activePills.length > 0) {
-                bar.classList.remove('hidden');
-                container.innerHTML = activePills.map((p, i) => `<div class="filter-pill">${p.label}: ${p.val} <span class="pill-x" onclick="removePill(${i})">✕</span></div>`).join('');
-            } else { bar.classList.add('hidden'); }
-
-            filteredData = allData.filter(row => {
-                const matchesPills = activePills.every(p => String(row[p.key]).toLowerCase().includes(p.val.toLowerCase()));
-                const matchesDropdown = dropdownWorker === "" || row.worker === dropdownWorker;
+            const baseFiltered = allData.filter(row => {
+                const matchesVenue = !venue || row.venue === venue;
+                const matchesType = !type || row.type === type;
+                const matchesSearch = !search || Object.values(row).some(v => String(v).toLowerCase().includes(search));
                 
                 let matchesPod = true;
                 if (activePod) {
                     const allowedStates = podMap.filter(p => p.Pod === activePod).map(p => p.State);
                     matchesPod = allowedStates.includes(row.stateCode);
                 }
-
-                return matchesPills && matchesDropdown && matchesPod;
+                return matchesVenue && matchesType && matchesSearch && matchesPod;
             });
+
+            if (!isWorkerManualChange) {
+                updateWorkerDropdown(baseFiltered);
+                
+                const vSelect = document.getElementById('venueDropdown');
+                if (vSelect.options.length <= 1 && allData.length > 0) {
+                   const venues = [...new Set(allData.map(d => d.venue))].sort();
+                   vSelect.innerHTML = '<option value="">All Venues</option>' + venues.map(v => `<option value="${v}">${v}</option>`).join('');
+                   const types = [...new Set(allData.map(d => d.type))].sort();
+                   document.getElementById('typeDropdown').innerHTML = '<option value="">All Types</option>' + types.map(t => `<option value="${t}">${t}</option>`).join('');
+                }
+            }
+
+            filteredData = baseFiltered.filter(row => !selectedWorker || row.worker === selectedWorker);
 
             renderTable(filteredData);
             document.getElementById('statTasks').innerText = filteredData.length;
@@ -256,29 +247,19 @@
         function renderTable(data) {
             document.getElementById('tableBody').innerHTML = data.map((item, index) => `
                 <tr class="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                    <td class="p-4 text-center text-slate-400 font-bold">${index + 1}</td>
-                    <td class="p-4 font-bold text-slate-500">${item.assignedDate}</td>
+                    <td class="p-4 font-bold text-slate-400">${index + 1}</td>
+                    <td class="p-4">${item.assignedDate}</td>
                     <td class="p-4 font-bold text-blue-600">${item.worker}</td>
                     <td class="p-4">${item.venue}</td>
                     <td class="p-4 font-mono font-bold">${item.kiosk}</td>
-                    <td class="p-4 font-black text-emerald-600">${item.kioskLoc}</td>
+                    <td class="p-4 font-bold text-emerald-600">${item.kioskLoc}</td>
                     <td class="p-4 text-slate-400 italic">${item.campaign}</td>
-                    <td class="p-4 uppercase font-bold text-[10px]">${item.type}</td>
+                    <td class="p-4 uppercase font-bold text-[10px] text-slate-500">${item.type}</td>
                     <td class="p-4 font-black">${item.boost}</td>
-                    <td class="p-4 text-[10px] leading-tight text-slate-400">${item.address}</td>
-                    <td class="p-4 font-black text-slate-900">${item.stateCode}</td>
+                    <td class="p-4 text-slate-400 leading-tight">${item.address}</td>
+                    <td class="p-4 font-bold text-slate-900">${item.stateCode}</td>
                 </tr>
             `).join('');
-        }
-
-        function sortData(key) {
-            sortDirection = !sortDirection;
-            filteredData.sort((a, b) => {
-                const vA = String(a[key]).toLowerCase();
-                const vB = String(b[key]).toLowerCase();
-                return sortDirection ? vA.localeCompare(vB) : vB.localeCompare(vA);
-            });
-            renderTable(filteredData);
         }
 
         function generatePrintHtml(worker, tasks) {
@@ -289,24 +270,35 @@
                 const batch = tasks.slice(i, i + batchSize);
                 const rowsHtml = batch.map((t, idx) => `
                     <tr style="border-bottom: 1px solid #e2e8f0; vertical-align: top;">
-                        <td style="padding: 6px; font-size: 9px; font-weight: 900; color: #94a3b8; width: 30px; text-align: center;">${i + idx + 1}</td>
+                        <td style="padding: 6px; font-size: 8px; font-weight: 900; width: 25px; text-align: center;">${idx + 1}</td>
                         <td style="padding: 6px; font-size: 9px; font-weight: 700; width: 140px;">${t.venue}</td>
                         <td style="padding: 6px; font-size: 9px; font-weight: 700; width: 70px; font-family: monospace;">${t.kiosk}</td>
                         <td style="padding: 6px; font-size: 9px; font-weight: 900; color: #059669; width: 100px;">${t.kioskLoc}</td>
                         <td style="padding: 6px; font-size: 8.5px; width: 180px; color: #475569;">${t.campaign}</td>
                         <td style="padding: 6px; font-size: 8.5px; width: 80px; font-weight: bold;">${t.type}</td>
                         <td style="padding: 6px; font-size: 8.5px; width: 70px; font-weight: 900;">${t.boost}</td>
-                        <td style="padding: 6px; font-size: 8.5px; line-height: 1.2; width: 220px;">${t.address}</td>
+                        <td style="padding: 6px; font-size: 8.5px; line-height: 1.2; width: 240px;">${t.address}</td>
                     </tr>
                 `).join('');
                 fullHtml += `
                     <div style="padding: 0.3in; background: white; page-break-after: always; font-family: 'Inter', sans-serif;">
-                        <div style="display: flex; justify-content: space-between; border-bottom: 4px solid #1e293b; padding-bottom: 8px; margin-bottom: 15px;">
-                            <div><h1 style="font-size: 18px; margin: 0; font-weight: 800;">DISPATCH WORKLOAD</h1><p style="margin: 0; font-size: 9px; font-weight: 800; color: #4477ce;">TERRABOOST MEDIA</p></div>
-                            <div style="text-align: right;"><h2 style="font-size: 13px; margin: 0; font-weight: 800;">${worker}</h2><p style="margin: 0; font-size: 8px; font-weight: 700;">DATED: ${today}</p></div>
+                        <div style="display: flex; justify-content: space-between; border-bottom: 4px solid #0f172a; padding-bottom: 8px; margin-bottom: 15px;">
+                            <div><h1 style="font-size: 18px; margin:0; font-weight: 800;">DISPATCH WORKLOAD</h1><p style="margin:0; font-size: 9px; font-weight: 800; color: #4477ce;">TERRABOOST MEDIA</p></div>
+                            <div style="text-align: right;"><h2 style="font-size: 13px; margin:0; font-weight: 800;">${worker}</h2><p style="margin:0; font-size: 8px;">DATED: ${today}</p></div>
                         </div>
                         <table style="width: 100%; border-collapse: collapse; table-layout: fixed;">
-                            <thead><tr style="background:#1e293b; color:white;"><th style="padding:6px; font-size:8px; text-align:center;">#</th><th style="padding:6px; font-size:8px;">VENUE</th><th style="padding:6px; font-size:8px;">ID</th><th style="padding:6px; font-size:8px;">LOC</th><th style="padding:6px; font-size:8px;">CAMPAIGN</th><th style="padding:6px; font-size:8px;">TYPE</th><th style="padding:6px; font-size:8px;">ART</th><th style="padding:6px; font-size:8px;">ADDRESS</th></tr></thead>
+                            <thead>
+                                <tr style="background: #0f172a; color: white;">
+                                    <th style="padding: 6px; text-align: center; font-size: 7px; width: 25px;">#</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 7px; width: 140px;">VENUE</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 7px; width: 70px;">ID</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 7px; width: 100px;">KIOSK LOCATION</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 7px; width: 180px;">CAMPAIGN</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 7px; width: 80px;">TYPE</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 7px; width: 70px;">ART</th>
+                                    <th style="padding: 6px; text-align: left; font-size: 7px; width: 240px;">ADDRESS</th>
+                                </tr>
+                            </thead>
                             <tbody>${rowsHtml}</tbody>
                         </table>
                     </div>`;
@@ -315,12 +307,15 @@
         }
 
         async function downloadSinglePDF() {
-            if (filteredData.length === 0) return alert("Select worker or filter board first.");
+            if (filteredData.length === 0) return alert("Select worker first.");
             const worker = filteredData[0].worker;
             const area = document.getElementById('pdf-content-area');
             area.innerHTML = generatePrintHtml(worker, filteredData.filter(d => d.worker === worker));
             const date = new Date().toISOString().split('T')[0];
-            await html2pdf().set({ margin: 0, html2canvas: { scale: 2 }, jsPDF: { format: 'letter', orientation: 'landscape' } }).from(area).save(`${worker.replace(/ /g,'_')}_Dispatch_${date}.pdf`);
+            await html2pdf().set({ 
+                margin: 0, html2canvas: { scale: 2, useCORS: true }, 
+                jsPDF: { unit: 'in', format: 'letter', orientation: 'landscape' } 
+            }).from(area).save(`${worker.replace(/ /g,'_')}_Dispatch_${date}.pdf`);
         }
     </script>
 </body>
