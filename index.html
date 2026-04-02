@@ -12,7 +12,6 @@
         .brand-gradient { background: linear-gradient(135deg, #0f172a 0%, #334155 100%); }
         .action-card { border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #e2e8f0; }
         
-        /* Modernized Table Headers */
         th { 
             background-color: #f8fafc !important; color: #64748b !important; font-weight: 700 !important; 
             text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; position: sticky; 
@@ -20,7 +19,6 @@
         }
         th:hover { color: #2563eb !important; background-color: #f1f5f9 !important; }
 
-        /* Pod View Buttons */
         .pod-btn { padding: 6px 14px; border-radius: 6px; font-size: 10px; font-weight: 700; text-transform: uppercase; transition: all 0.2s; border: 1px solid transparent; opacity: 0.7; }
         .pod-btn:hover { opacity: 1; border-color: rgba(0,0,0,0.1); }
         .pod-btn.active { opacity: 1; ring: 2px; ring-offset: 1px; ring-color: #94a3b8; border-color: #1e293b; }
@@ -57,15 +55,15 @@
             
             <div class="flex-1 max-w-md relative">
                 <span class="absolute left-3 top-2.5 text-slate-300">🔍</span>
-                <input type="text" id="masterSearch" onkeyup="applyFilters()" placeholder="Search anything on the board..." 
+                <input type="text" id="masterSearch" onkeyup="applyFilters()" placeholder="Search board..." 
                        class="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 pl-9 pr-4 text-sm focus:border-blue-400 focus:bg-white transition-all shadow-sm">
             </div>
         </div>
 
         <div class="bg-white action-card p-6">
-            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+            <div class="flex flex-col lg:flex-row justify-between items-center gap-6">
                 <div class="flex items-center gap-4">
-                    <div class="brand-gradient text-white w-14 h-14 flex items-center justify-center rounded-xl font-bold text-2xl shadow-lg shadow-slate-200">TB</div>
+                    <div class="brand-gradient text-white w-14 h-14 flex items-center justify-center rounded-xl font-bold text-2xl shadow-lg">TB</div>
                     <div>
                         <h1 class="text-2xl font-bold tracking-tight text-slate-900">Dispatch Dashboard</h1>
                         <div class="flex items-center gap-2 mt-1">
@@ -76,15 +74,15 @@
                 </div>
 
                 <div class="flex flex-1 flex-wrap items-center justify-end gap-2 w-full">
-                    <select id="workerDropdown" onchange="applyFilters(true)" class="custom-select bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-700 hover:border-slate-300 transition-all w-full md:w-52 h-11">
+                    <select id="workerDropdown" onchange="applyFilters(true)" class="custom-select bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-700 w-full md:w-52 h-11">
                         <option value="">All Workers</option>
                     </select>
 
-                    <select id="venueDropdown" onchange="applyFilters()" class="custom-select bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-700 hover:border-slate-300 transition-all w-full md:w-52 h-11">
+                    <select id="venueDropdown" onchange="applyFilters()" class="custom-select bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-700 w-full md:w-52 h-11">
                         <option value="">All Venues</option>
                     </select>
 
-                    <select id="typeDropdown" onchange="applyFilters()" class="custom-select bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-700 hover:border-slate-300 transition-all w-full md:w-52 h-11">
+                    <select id="typeDropdown" onchange="applyFilters()" class="custom-select bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-700 w-full md:w-52 h-11">
                         <option value="">All Types</option>
                     </select>
 
@@ -103,12 +101,12 @@
                     <span id="statTasks" class="text-sm font-bold text-slate-900">0</span>
                 </div>
                 <div class="bg-white border border-slate-200 px-4 py-1.5 rounded-lg flex items-center gap-3 shadow-sm">
-                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Active Workers</span>
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Workers</span>
                     <span id="statWorkers" class="text-sm font-bold text-slate-900">0</span>
                 </div>
             </div>
             
-            <button id="pdfBtn" onclick="downloadSinglePDF()" disabled class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-[10px] font-extrabold uppercase tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-sm">
+            <button id="pdfBtn" onclick="downloadSinglePDF()" disabled class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-[10px] font-extrabold uppercase transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-sm">
                 PDF Download
             </button>
         </div>
@@ -231,8 +229,9 @@
                 if (vSelect.options.length <= 1 && allData.length > 0) {
                    const venues = [...new Set(allData.map(d => d.venue))].sort();
                    vSelect.innerHTML = '<option value="">All Venues</option>' + venues.map(v => `<option value="${v}">${v}</option>`).join('');
+                   const tSelect = document.getElementById('typeDropdown');
                    const types = [...new Set(allData.map(d => d.type))].sort();
-                   document.getElementById('typeDropdown').innerHTML = '<option value="">All Types</option>' + types.map(t => `<option value="${t}">${t}</option>`).join('');
+                   tSelect.innerHTML = '<option value="">All Types</option>' + types.map(t => `<option value="${t}">${t}</option>`).join('');
                 }
             }
 
@@ -270,7 +269,7 @@
                 const batch = tasks.slice(i, i + batchSize);
                 const rowsHtml = batch.map((t, idx) => `
                     <tr style="border-bottom: 1px solid #e2e8f0; vertical-align: top;">
-                        <td style="padding: 6px; font-size: 8px; font-weight: 900; width: 25px; text-align: center;">${idx + 1}</td>
+                        <td style="padding: 6px; font-size: 8px; font-weight: 900; width: 25px; text-align: center;">${i + idx + 1}</td>
                         <td style="padding: 6px; font-size: 9px; font-weight: 700; width: 140px;">${t.venue}</td>
                         <td style="padding: 6px; font-size: 9px; font-weight: 700; width: 70px; font-family: monospace;">${t.kiosk}</td>
                         <td style="padding: 6px; font-size: 9px; font-weight: 900; color: #059669; width: 100px;">${t.kioskLoc}</td>
@@ -307,7 +306,7 @@
         }
 
         async function downloadSinglePDF() {
-            if (filteredData.length === 0) return alert("Select worker first.");
+            if (filteredData.length === 0) return alert("Select data first.");
             const worker = filteredData[0].worker;
             const area = document.getElementById('pdf-content-area');
             area.innerHTML = generatePrintHtml(worker, filteredData.filter(d => d.worker === worker));
