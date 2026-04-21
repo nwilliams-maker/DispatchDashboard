@@ -262,48 +262,56 @@
         }
 
         function generatePrintHtml(worker, tasks) {
-            const batchSize = 22;
-            let fullHtml = '';
-            const today = new Date().toLocaleDateString();
-            for (let i = 0; i < tasks.length; i += batchSize) {
-                const batch = tasks.slice(i, i + batchSize);
-                const rowsHtml = batch.map((t, idx) => `
-                    <tr style="border-bottom: 1px solid #e2e8f0; vertical-align: top;">
-                        <td style="padding: 6px; font-size: 8px; font-weight: 900; width: 25px; text-align: center;">${i + idx + 1}</td>
-                        <td style="padding: 6px; font-size: 9px; font-weight: 700; width: 140px;">${t.venue}</td>
-                        <td style="padding: 6px; font-size: 9px; font-weight: 700; width: 70px; font-family: monospace;">${t.kiosk}</td>
-                        <td style="padding: 6px; font-size: 9px; font-weight: 900; color: #059669; width: 100px;">${t.kioskLoc}</td>
-                        <td style="padding: 6px; font-size: 8.5px; width: 180px; color: #475569;">${t.campaign}</td>
-                        <td style="padding: 6px; font-size: 8.5px; width: 80px; font-weight: bold;">${t.type}</td>
-                        <td style="padding: 6px; font-size: 8.5px; width: 70px; font-weight: 900;">${t.boost}</td>
-                        <td style="padding: 6px; font-size: 8.5px; line-height: 1.2; width: 240px;">${t.address}</td>
-                    </tr>
-                `).join('');
-                fullHtml += `
-                    <div style="padding: 0.3in; background: white; page-break-after: always; font-family: 'Inter', sans-serif;">
-                        <div style="display: flex; justify-content: space-between; border-bottom: 4px solid #0f172a; padding-bottom: 8px; margin-bottom: 15px;">
-                            <div><h1 style="font-size: 18px; margin:0; font-weight: 800;">DISPATCH WORKLOAD</h1><p style="margin:0; font-size: 9px; font-weight: 800; color: #4477ce;">TERRABOOST MEDIA</p></div>
-                            <div style="text-align: right;"><h2 style="font-size: 13px; margin:0; font-weight: 800;">${worker}</h2><p style="margin:0; font-size: 8px;">DATED: ${today}</p></div>
-                        </div>
-                        <table style="width: 100%; border-collapse: collapse; table-layout: fixed;">
-                            <thead>
-                                <tr style="background: #0f172a; color: white;">
-                                    <th style="padding: 6px; text-align: center; font-size: 7px; width: 25px;">#</th>
-                                    <th style="padding: 6px; text-align: left; font-size: 7px; width: 140px;">VENUE</th>
-                                    <th style="padding: 6px; text-align: left; font-size: 7px; width: 70px;">ID</th>
-                                    <th style="padding: 6px; text-align: left; font-size: 7px; width: 100px;">KIOSK LOCATION</th>
-                                    <th style="padding: 6px; text-align: left; font-size: 7px; width: 180px;">CAMPAIGN</th>
-                                    <th style="padding: 6px; text-align: left; font-size: 7px; width: 80px;">TYPE</th>
-                                    <th style="padding: 6px; text-align: left; font-size: 7px; width: 70px;">ART</th>
-                                    <th style="padding: 6px; text-align: left; font-size: 7px; width: 240px;">ADDRESS</th>
-                                </tr>
-                            </thead>
-                            <tbody>${rowsHtml}</tbody>
-                        </table>
-                    </div>`;
-            }
-            return fullHtml;
-        }
+    const batchSize = 22;
+    let fullHtml = '';
+    const today = new Date().toLocaleDateString();
+    
+    for (let i = 0; i < tasks.length; i += batchSize) {
+        const batch = tasks.slice(i, i + batchSize);
+        const rowsHtml = batch.map((t, idx) => `
+            <tr style="border-bottom: 1px solid #e2e8f0; vertical-align: top;">
+                <td style="padding: 4px; font-size: 7.5px; font-weight: 900; width: 25px; text-align: center; white-space: nowrap;">${i + idx + 1}</td>
+                <td style="padding: 4px; font-size: 8px; font-weight: 700; width: 110px;">${t.venue}</td>
+                <td style="padding: 4px; font-size: 8px; font-weight: 700; width: 65px; font-family: monospace; white-space: nowrap;">${t.kiosk}</td>
+                <td style="padding: 4px; font-size: 8px; font-weight: 900; color: #059669; width: 110px;">${t.kioskLoc}</td>
+                <td style="padding: 4px; font-size: 7.5px; width: 180px; color: #475569; line-height: 1.1;">${t.campaign}</td>
+                <td style="padding: 4px; font-size: 7.5px; width: 80px; font-weight: bold; text-transform: uppercase;">${t.type}</td>
+                <td style="padding: 4px; font-size: 7.5px; width: 60px; font-weight: 900;">${t.boost}</td>
+                <td style="padding: 4px; font-size: 7.5px; line-height: 1.1; width: 240px;">${t.address}</td>
+            </tr>
+        `).join('');
+
+        fullHtml += `
+            <div style="padding: 0.3in; background: white; page-break-after: always; font-family: 'Inter', sans-serif;">
+                <div style="display: flex; justify-content: space-between; border-bottom: 4px solid #0f172a; padding-bottom: 8px; margin-bottom: 15px;">
+                    <div>
+                        <h1 style="font-size: 18px; margin:0; font-weight: 800; color: #0f172a;">DISPATCH WORKLOAD</h1>
+                        <p style="margin:0; font-size: 9px; font-weight: 800; color: #4477ce; letter-spacing: 0.05em;">TERRABOOST MEDIA</p>
+                    </div>
+                    <div style="text-align: right;">
+                        <h2 style="font-size: 13px; margin:0; font-weight: 800; color: #1e293b;">${worker}</h2>
+                        <p style="margin:0; font-size: 8px; font-weight: 600; color: #64748b;">DATED: ${today}</p>
+                    </div>
+                </div>
+                <table style="width: 100%; border-collapse: collapse; table-layout: fixed;">
+                    <thead>
+                        <tr style="background: #0f172a; color: white;">
+                            <th style="padding: 6px; text-align: center; font-size: 7px; width: 25px;">#</th>
+                            <th style="padding: 6px; text-align: left; font-size: 7px; width: 110px;">VENUE</th>
+                            <th style="padding: 6px; text-align: left; font-size: 7px; width: 65px;">ID</th>
+                            <th style="padding: 6px; text-align: left; font-size: 7px; width: 110px;">KIOSK LOCATION</th>
+                            <th style="padding: 6px; text-align: left; font-size: 7px; width: 180px;">CAMPAIGN</th>
+                            <th style="padding: 6px; text-align: left; font-size: 7px; width: 80px;">TYPE</th>
+                            <th style="padding: 6px; text-align: left; font-size: 7px; width: 60px;">ART</th>
+                            <th style="padding: 6px; text-align: left; font-size: 7px; width: 240px;">ADDRESS</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rowsHtml}</tbody>
+                </table>
+            </div>`;
+    }
+    return fullHtml;
+}
 
         async function downloadSinglePDF() {
             if (filteredData.length === 0) return alert("Select data first.");
