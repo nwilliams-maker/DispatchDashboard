@@ -892,6 +892,77 @@
   // Whitespace and case are normalized so OnFleet variants don't slip through.
   function isInstallType(t) { return String(t || '').trim().toLowerCase() === 'kiosk install'; }
 
+  // Strip trailing date markers from campaign names. OnFleet's campaign names commonly
+  // include the flight period at the end of the string in several formats. Production
+  // doesn't care about those dates — they only need the campaign identity to pull the
+  // right artwork — and the dates eat horizontal space in row tables that's better
+  // spent on the actual campaign name.
+  //
+  // Patterns stripped (greedy, applied in a fixed-point loop until nothing changes):
+  //   1. Bracketed numeric date ranges anywhere: "(3/9/26-3/15/26)"
+  //   2. Trailing numeric date range: " 05/18/2026-07/12/2026"
+  //   3. Trailing single numeric date: " 05/18/2026"
+  //   4. Trailing "Month YYYY":              " - June 2025", ", May 2026"
+  //   5. Trailing "Renewal Month YYYY":      " - Renewal June 2025", ", Renewal, January 2026"
+  //   6. Dangling separator/comma left at the end after stripping
+  //
+  // The function loops until the output stops changing, which handles inputs like
+  // "...DDS, Fry's(3), Safeway(2), ..., Renewal, November 2024," that have multiple
+  // trailing artifacts (date + comma + …).
+  function stripCampaignDates(s) {
+    if (!s) return s;
+    let out = String(s);
+    out = out.replace(/\s*\(\s*\d{1,2}\/\d{1,2}\/\d{2,4}\s*-\s*\d{1,2}\/\d{1,2}\/\d{2,4}\s*\)/g, '');
+    out = out.replace(/\s+\d{1,2}\/\d{1,2}\/\d{2,4}\s*-\s*\d{1,2}\/\d{1,2}\/\d{2,4}\s*$/g, '');
+    out = out.replace(/\s+\d{1,2}\/\d{1,2}\/\d{2,4}\s*$/g, '');
+    const months = '(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)';
+    let prev = null;
+    let safety = 6;
+    while (prev !== out && safety-- > 0) {
+      prev = out;
+      out = out.replace(new RegExp(`\\s*[-,]\\s*(?:Renewal|Renew),?\\s+${months}\\s+\\d{2,4}\\s*[,.]?\\s*$`, 'i'), '');
+      out = out.replace(new RegExp(`\\s*[-,]\\s*${months}\\s+\\d{2,4}\\s*[,.]?\\s*$`, 'i'), '');
+      out = out.replace(new RegExp(`\\s+(?:Renewal|Renew),?\\s+${months}\\s+\\d{2,4}\\s*[,.]?\\s*$`, 'i'), '');
+      out = out.replace(new RegExp(`\\s+${months}\\s+\\d{2,4}\\s*[,.]?\\s*$`, 'i'), '');
+      out = out.replace(/\s*[-,]\s*$/, '');
+    }
+    return out.trim();
+  }
+
+  // Normalize the kioskType field for warehouse-friendly display. OnFleet has many
+  // variants/typos for the same value — we collapse them and then apply the labeling rule:
+  //
+  //   blank / missing / "N/A" / "NULL"           → 'Mini'    (untagged kiosks are Mini units)
+  //   "Premium"                                  → ''        (omitted — most common, default)
+  //   "Premium Digital" / "premium_digital" / …  → 'Digital'
+  //   "Premium Mini" / "premium_mini"            → 'Mini'
+  //   "Premium Sani"                             → 'Sani'
+  //   "Luxury" / "Lux" / "lux"                   → 'Lux'
+  //   "Fry's Marketplace"                        → 'Mini'    (Fry's locations are Mini units)
+  //   anything else                              → as-is, title-cased
+  //
+  // Returns empty string ONLY for explicit Premium values (the production default — no
+  // need to label these). Anything else maps to a meaningful label.
+  function normalizeKioskType(raw) {
+    // Treat blank / missing / sentinel values as Mini (untagged kiosks are Mini)
+    if (raw == null) return 'Mini';
+    let s = String(raw).trim();
+    if (!s || /^(n\/a|null|—)$/i.test(s)) return 'Mini';
+    // Fry's Marketplace stores are tagged with the venue name in this field rather than
+    // a kiosk hardware type — they're physically Mini units, so display them as such.
+    if (/fry'?s\s*marketplace/i.test(s)) return 'Mini';
+    // Collapse separators (underscores, double-spaces) to a single space, fix common typo
+    s = s.replace(/[_\s]+/g, ' ').replace(/Premiun/gi, 'Premium').trim();
+    // Lux / Luxury → "Lux" (canonical short label)
+    if (/^lux(ury)?$/i.test(s)) return 'Lux';
+    // Title-case each word
+    let titled = s.split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : '').join(' ');
+    // Bare "Premium" is the default — don't surface it. For "Premium <X>", drop the prefix.
+    if (titled === 'Premium') return '';
+    titled = titled.replace(/^Premium\s+/, '');
+    return titled;
+  }
+
   // Extract the art-file reference from an OnFleet task's notes field.
   // The notes field is multi-purpose — it can contain pure art-file refs, color/category
   // prefix lines plus art files, OR free-form driver instructions. We want to surface only
@@ -923,10 +994,16 @@
   // ============ LOCAL CACHE (stale-while-revalidate) ============
   // The OnFleet payload is ~20 MB and the round-trip through Apps Script takes 6-10s on a
   // good day, longer on cold starts. Caching the ingested rows in localStorage lets the
-  // dashboard paint instantly on subsequent loads while a fresh fetch runs in the background.
-  // Cache key is versioned so a schema change here invalidates old caches automatically.
-  const CACHE_KEY = 'tb_dispatch_rows_v2';
+  // Bumping this key invalidates every browser's cached rows — needed whenever the row
+  // schema changes (or whenever a bad cache snapshot is suspected of breaking the UI).
+  // v3 → v4: previous bump didn't catch a class of partial caches where SOME WOs were
+  // present but the count was suspiciously low. v4 adds a freshness floor so any cache
+  // with fewer than 5 WOs is treated as broken.
+  const CACHE_KEY = 'tb_dispatch_rows_v5';
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h — anything older is too stale to show
+  // Floor for "this cache looks healthy" — synced data normally has 30+ WOs. A cache
+  // with fewer than this is treated as a degenerate snapshot from a broken proxy session.
+  const CACHE_MIN_WOS = 5;
 
   function readRowsCache() {
     try {
@@ -938,6 +1015,24 @@
         try { localStorage.removeItem(CACHE_KEY); } catch {}
         return null;
       }
+      // Safety guards — discard the cache and force a fresh fetch when:
+      //   1. No tasks have a WO (catches the "all tasks loose" failure mode)
+      //   2. Fewer than CACHE_MIN_WOS unique WOs are present (catches partial caches
+      //      from a broken proxy that only returned some of the data)
+      const hasAnyWO = obj.rows.some(r => r && r.hasRoute);
+      if (!hasAnyWO) {
+        try { localStorage.removeItem(CACHE_KEY); } catch {}
+        return null;
+      }
+      const distinctWOs = new Set();
+      for (const r of obj.rows) {
+        if (r && r.hasRoute && r.route) distinctWOs.add(r.route);
+        if (distinctWOs.size >= CACHE_MIN_WOS) break;
+      }
+      if (distinctWOs.size < CACHE_MIN_WOS) {
+        try { localStorage.removeItem(CACHE_KEY); } catch {}
+        return null;
+      }
       return obj;
     } catch {
       return null;
@@ -946,13 +1041,10 @@
 
   function writeRowsCache(rows) {
     try {
-      // Strip `notes` (often long, only used by extractArtFile which already ran during
-      // ingest and stored its result in `artFile`). Saves ~30% of cache size.
-      const slim = rows.map(r => {
-        const { notes, ...rest } = r;
-        return rest;
-      });
-      const payload = JSON.stringify({ ts: Date.now(), rows: slim });
+      // Notes were previously stripped here to save cache space, but they're now used
+      // on the packing slip's Locals table, so we keep them. Most rows have empty notes
+      // (only ~17% have any content), so the cache size hit is modest.
+      const payload = JSON.stringify({ ts: Date.now(), rows });
       localStorage.setItem(CACHE_KEY, payload);
     } catch (e) {
       // QuotaExceededError or similar — cache too big for this browser. Silently skip;
@@ -1208,6 +1300,16 @@
         stopNumber = stopCounter[stopKey];
       }
 
+      // Kiosk type — venue-based override: Quest Diagnostics kiosks are always Sani units,
+      // even when OnFleet's kioskType field is blank or set to plain "Premium". Production
+      // confirmed this rule. Apply the override BEFORE normalization so the displayed
+      // label is consistent across the whole app.
+      const venueName = cf('venueName') || '';
+      let kioskTypeRaw = cf('kioskType');
+      if (/quest/i.test(venueName)) {
+        kioskTypeRaw = 'Sani';
+      }
+
       rows.push({
         id: t.id,
         shortId: t.shortId,
@@ -1223,13 +1325,14 @@
         venue: cf('venueName'),
         kiosk: cf('kioskId'),
         kioskLoc: cf('locationinVenue'),
-        campaign: cf('campaignName'),
+        campaign: stripCampaignDates(cf('campaignName')),
         type: taskType,
         boost: cf('boostedStandard'),
         sio: cf('sio'),
-        clientCompany: cf('clientCompany'),
+        clientCompany: stripCampaignDates(cf('clientCompany')),
         customerType: cf('customerType'),
-        nationalCampName: cf('nationalCampName'),
+        nationalCampName: stripCampaignDates(cf('nationalCampName')),
+        kioskType: normalizeKioskType(kioskTypeRaw),
         notes: t.notes || '',
         artFile: extractArtFile(t.notes || ''),
         address: t.destination?.address ? `${t.destination.address.number} ${t.destination.address.street}, ${t.destination.address.city}` : 'N/A',
@@ -2493,12 +2596,36 @@
     const CONTENT_W = W - 2 * M;
 
     // Tasks that don't need a warehouse pull (continuity = artwork already in place;
-    // photo = field-only documentation tasks). They still appear in Route Details so the
-    // worker has the full driving sequence, but they're rendered DIMMED there and excluded
-    // from every "things to pack" surface (summary cards, Locals table, Total Tasks count).
+    // photo = field-only documentation tasks; Digital Defaults = Premium Digital kiosks
+    // running default content, no paper artwork to pull). They still appear in Route
+    // Details so the worker has the full driving sequence, but they're rendered DIMMED
+    // there and excluded from every "things to pack" surface (summary cards, Locals
+    // table, Total Tasks count). The Digital Default check is inlined here because the
+    // named `isDigitalDefault` predicate is defined later in this function.
+    //
+    // The Digital Default rule requires BOTH a default classification (sio=Default/0,
+    // taskType=Default, Pull Down, etc.) AND a Premium Digital kiosk type without
+    // "Magnet" in the task type. New Ad / Digital Service / etc. tasks on Digital
+    // kiosks remain packable — they're real installs even if the panel is digital.
+    const isDigitalDefaultInline = r => {
+      const sio = (r.sio || '').toLowerCase();
+      const tt = (r.type || '').toLowerCase();
+      const boost = (r.boost || '').toLowerCase();
+      const cn = (r.campaign || '').toLowerCase();
+      const kt = (r.kioskType || '').toLowerCase();
+      const isDef = sio === 'default' || sio === '0'
+          || boost === 'default ad' || boost === 'default'
+          || tt === 'default'
+          || /\bpull\s*down\b/.test(tt) || /\bpull\s*down\b/.test(cn)
+          || /\breplace\s+with\s+default\b/.test(cn);
+      return isDef && kt === 'digital' && !/magnet/.test(tt);
+    };
     const isPackable = r => {
       const tt = r.type || '';
-      return !/\bcontinuity\b/i.test(tt) && !/\bphoto\b/i.test(tt);
+      if (/\bcontinuity\b/i.test(tt)) return false;
+      if (/\bphoto\b/i.test(tt)) return false;
+      if (isDigitalDefaultInline(r)) return false;
+      return true;
     };
     const allRows = rows;
     const packableRows = rows.filter(isPackable);
@@ -2540,18 +2667,33 @@
       const boost = (r.boost || '').toLowerCase();
       const cn = (r.campaign || '').toLowerCase();
       // A task is "Default" if any of these are true:
-      //   1. SIO is literally "default"
+      //   1. SIO is literally "default" or the "0" sentinel (both mean no specific SIO order)
       //   2. Boost (boostedStandard) is "default" or "default ad"
-      //   3. Task type contains "pull down" — actual pull-down operation
-      //   4. Campaign name contains "pull down" or "replace with default" — captures
+      //   3. Task type is exactly "default" (the bare-default task type)
+      //   4. Task type contains "pull down" — actual pull-down operation
+      //   5. Campaign name contains "pull down" or "replace with default" — captures
       //      the few edge cases where the specific task is a New Ad / Kiosk Install but
       //      the broader campaign is a pull-down / replace-with-default operation.
       //      The warehouse pulls default art for these regardless of the per-task type.
-      return sio === 'default'
+      return sio === 'default' || sio === '0'
           || boost === 'default ad' || boost === 'default'
+          || tt === 'default'
           || /\bpull\s*down\b/.test(tt)
           || /\bpull\s*down\b/.test(cn)
           || /\breplace\s+with\s+default\b/.test(cn);
+    };
+    // Digital Defaults are tasks that are BOTH classified as Default (Pull Down, sio=Default,
+    // taskType=Default, etc.) AND are on a Premium Digital kiosk where the task type does NOT
+    // contain "Magnet" (Digital Ad With Magnet tasks ARE real pulls — they need the
+    // physical magnet artwork). Per spec, Digital Defaults never appear in the Default
+    // Summary because Digital screens don't pull paper artwork from the default pool.
+    // They still appear in Route Details so the worker sees the stop, with the task type
+    // relabeled as "Remove Magnet" and the row dimmed.
+    const isDigitalDefault = r => {
+      if (!isDefault(r)) return false;
+      const kt = (r.kioskType || '').toLowerCase();
+      const tt = (r.type || '').toLowerCase();
+      return kt === 'digital' && !/magnet/.test(tt);
     };
     const isNational  = r => (r.customerType || '').toLowerCase() === 'national';
     const isIncorrect = r => /photo\s*retake|location\s+in\s+venue\s+incorrect|incorrect/i.test(r.type || '');
@@ -2560,7 +2702,9 @@
     // Incorrect supersedes nothing now — incorrect tasks stay in their natural bucket
     // (Local / National / Default) but get highlighted red in the detail table.
     // Default supersedes National (a Pull Down on a National task is still "Default")
-    const defaultRows  = rows.filter(r => isDefault(r));
+    // EXCEPT for Digital Defaults — those are stripped from every summary bucket since
+    // they don't represent a paper-pull operation. They still appear in Route Details.
+    const defaultRows  = rows.filter(r => isDefault(r) && !isDigitalDefault(r));
     const nationalRows = rows.filter(r => !isDefault(r) && isNational(r));
     // Locals = all non-default/non-national tasks
     const localRows    = rows.filter(r => !isDefault(r) && !isNational(r));
@@ -2591,9 +2735,31 @@
     };
     const nationalByArt = aggregateBy(
       nationalRows,
-      r => (r.boost || '—') + '||' + (r.clientCompany || '—') + '||' + nationalLabel(r),
-      r => ({ art: r.boost || '—', client: r.clientCompany || '—', campaign: nationalLabel(r) })
-    ).sort((a, b) => {
+      r => (r.boost || '—') + '||' + (r.clientCompany || '—') + '||' + nationalLabel(r) + '||' + (r.kioskType || ''),
+      r => ({
+        art: r.boost || '—',
+        client: r.clientCompany || '—',
+        campaign: nationalLabel(r),
+        kioskType: r.kioskType || '',
+        // Collect distinct allocated art file names across all tasks in this group. Same
+        // campaign + same hardware almost always shares one art file, but it's worth
+        // surfacing the rare case where production needs to pull two different files.
+        artFiles: new Set(),
+      })
+    );
+    // Populate the artFiles set for each grouped item by walking the source rows again.
+    // (aggregateBy doesn't expose row-level access to the reducer; this second pass is
+    // simple and the row count is small enough that performance doesn't matter here.)
+    for (const r of nationalRows) {
+      const key = (r.boost || '—') + '||' + (r.clientCompany || '—') + '||' + nationalLabel(r) + '||' + (r.kioskType || '');
+      const af = (r.artFile || '').trim();
+      if (!af) continue;
+      const item = nationalByArt.find(it =>
+        ((it.art || '—') + '||' + (it.client || '—') + '||' + it.campaign + '||' + (it.kioskType || '')) === key
+      );
+      if (item) item.artFiles.add(af);
+    }
+    nationalByArt.sort((a, b) => {
       const byArt = String(a.art).localeCompare(String(b.art));
       if (byArt !== 0) return byArt;
       return String(a.client).localeCompare(String(b.client));
@@ -2630,6 +2796,100 @@
     doc.setFontSize(8.5);
     doc.setTextColor(120, 120, 120);
     doc.text(today, W - M, y + 8, { align: 'right' });
+
+    // ============ LEGEND (in header row, between eyebrow and date) ============
+    // Compact horizontal key explaining the visual indicators production will see in
+    // the row tables below. Sits in the same line as the eyebrow and date so it doesn't
+    // consume any extra vertical space — production reads it once at the very top of
+    // the slip, then has the visual reference for everything below.
+    {
+      const items = [
+        { kind: 'fill',   color: [232, 218, 250], label: 'Boosted Ad' },
+        { kind: 'accent', color: [22, 163, 74],   label: 'Kiosk Install' },
+        { kind: 'fill',   color: [254, 242, 242], label: 'Photo Retake' },
+        { kind: 'dim',                            label: 'Continuity · Photo · Remove Magnet' },
+      ];
+      const SWATCH_W = 11, SWATCH_H = 7, GAP = 11, ITEM_GAP = 4;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      const labelWidths = items.map(it => doc.getTextWidth(it.label));
+
+      // Compute total width and center the strip horizontally between the page edges,
+      // with a "KEY" eyebrow on the far left of the strip
+      let totalW = 0;
+      items.forEach((_, i) => { totalW += SWATCH_W + ITEM_GAP + labelWidths[i]; });
+      totalW += GAP * (items.length - 1);
+
+      const keyLabel = 'KEY';
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setCharSpace(0.6);
+      const keyW = doc.getTextWidth(keyLabel) + 7;
+      doc.setCharSpace(0);
+
+      // Determine the center of the gap between the eyebrow text on the left and the
+      // date text on the right, so the legend sits neatly between them rather than
+      // overlapping. We re-measure the eyebrow and date widths in their actual fonts.
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setCharSpace(1.2);
+      const eyebrowW = doc.getTextWidth('TERRABOOST MEDIA  ·  PACKING SLIP');
+      doc.setCharSpace(0);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      const dateW = doc.getTextWidth(today);
+
+      // Available range for the legend: from (M + eyebrowW + buffer) to (W - M - dateW - buffer).
+      // Center the legend (KEY + items) inside that available range.
+      const BUFFER = 14;
+      const availLeft = M + eyebrowW + BUFFER;
+      const availRight = W - M - dateW - BUFFER;
+      const totalStripW = totalW + keyW;
+      const startX = availLeft + ((availRight - availLeft) - totalStripW) / 2;
+      const baseY = y + 8;     // align with eyebrow text baseline
+      const swatchY = y + 2;   // swatches start a couple pts above text baseline
+
+      // KEY eyebrow
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(140, 140, 140);
+      doc.setCharSpace(0.6);
+      doc.text(keyLabel, startX, baseY);
+      doc.setCharSpace(0);
+
+      let cursorX = startX + keyW;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+
+      items.forEach((it, i) => {
+        if (it.kind === 'fill') {
+          doc.setFillColor(it.color[0], it.color[1], it.color[2]);
+          doc.setDrawColor(220, 220, 220);
+          doc.setLineWidth(0.3);
+          doc.roundedRect(cursorX, swatchY, SWATCH_W, SWATCH_H, 1.5, 1.5, 'FD');
+        } else if (it.kind === 'accent') {
+          doc.setFillColor(245, 245, 245);
+          doc.setDrawColor(220, 220, 220);
+          doc.setLineWidth(0.3);
+          doc.roundedRect(cursorX, swatchY, SWATCH_W, SWATCH_H, 1.5, 1.5, 'FD');
+          doc.setFillColor(it.color[0], it.color[1], it.color[2]);
+          doc.rect(cursorX, swatchY, 1.8, SWATCH_H, 'F');
+        } else if (it.kind === 'dim') {
+          doc.setFillColor(248, 248, 247);
+          doc.setDrawColor(220, 220, 220);
+          doc.setLineWidth(0.3);
+          doc.roundedRect(cursorX, swatchY, SWATCH_W, SWATCH_H, 1.5, 1.5, 'FD');
+          doc.setTextColor(185, 185, 185);
+          doc.setFontSize(5.5);
+          doc.text('Aa', cursorX + SWATCH_W / 2, swatchY + 5, { align: 'center' });
+          doc.setFontSize(7);
+        }
+        cursorX += SWATCH_W + ITEM_GAP;
+        doc.setTextColor(90, 90, 90);
+        doc.text(it.label, cursorX, baseY);
+        cursorX += labelWidths[i] + GAP;
+      });
+    }
 
     y += 22;
 
@@ -2724,11 +2984,12 @@
     // Sort by SIO ascending, with sensible handling for non-numeric values:
     //   1. Numeric SIOs first, sorted ascending (the common case — "25094763" < "26036421")
     //   2. Other text SIOs after the numbers, alphabetical
-    //   3. Blank / NULL / N/A pushed to the end so they don't break up the numbered groups
+    //   3. Default sentinels (blank / NULL / N/A / 'Default' / '0') pushed to the end so
+    //      they don't break up the numbered groups
     // Secondary sort by Kiosk ID so same-SIO rows always read in a consistent order.
     const sioSortKey = r => {
       const raw = String(r.sio || '').trim();
-      if (!raw || /^(null|n\/a|—|default)$/i.test(raw)) return [3, '', ''];
+      if (!raw || /^(null|n\/a|—|default|0)$/i.test(raw)) return [3, '', ''];
       if (/^\d+$/.test(raw)) return [1, parseInt(raw, 10), ''];
       return [2, 0, raw.toLowerCase()];
     };
@@ -2749,7 +3010,14 @@
         y, localsSorted,
         'LOCALS',
         `${localsSorted.length} task${localsSorted.length === 1 ? '' : 's'} · sorted by SIO`,
-        { hideAddress: true, deemphasizeInstalls: true, useSioColumn: true, showArtFile: anyArtFile }
+        // localsLayout: true uses the warehouse-tuned column order
+        // (Notes · Kiosk ID · SIO · Kiosk Type · Art · Task · Venue · Client/Campaign ·
+        // Allocated Art · State). The Allocated Art column is always present in this
+        // layout per spec, regardless of whether any rows have art files.
+        // groupLocals: collapses runs of rows that share artwork-pull fields
+        // (SIO + Campaign + Task Type + Kiosk Type + Notes + Allocated Art + State)
+        // into a single master row + a small sub-line listing each kiosk and venue.
+        { hideAddress: true, deemphasizeInstalls: true, useSioColumn: true, showArtFile: true, localsLayout: true, groupLocals: true }
       );
     }
 
@@ -2809,14 +3077,43 @@
       const data = card.data;
       const isEmpty = !data.length;
 
-      // Row height varies by layout
-      const ROW_H_BY_LAYOUT = {
-        count:          18,
-        nationalByArt:  26,
-      };
-      const ROW_H = ROW_H_BY_LAYOUT[card.layout] || 18;
+      // Layouts other than nationalByArt use a fixed row height. nationalByArt rows are
+      // variable — each row's height depends on how many wrapped lines its allocated-art
+      // file string occupies. We pre-compute per-row heights here so totalH can be set
+      // accurately before the card background rectangle is drawn.
+      const FIXED_ROW_H = card.layout === 'count' ? 18 : 18;
+      // Per-row precomputed heights (used by nationalByArt layout). Key constants:
+      //   BASE_H — 26pt of vertical space for the pill + primary line (+ optional
+      //            secondary line if present). Smaller than the old 34pt because we
+      //            now grow the row only as much as the actual art file content needs.
+      //   ART_LINE_H — 9pt per wrapped art-file line at 7pt font.
+      //   ART_TOP_GAP — 4pt breathing room between secondary text and art file lines.
+      const BASE_H = 26;
+      const ART_LINE_H = 9;
+      const ART_TOP_GAP = 4;
+      const ART_FONT_SIZE = 7;
+      const labelMaxWPre = w - PAD * 2 - 6;
+
+      const rowHeights = [];
+      if (card.layout === 'nationalByArt') {
+        for (const item of data) {
+          const artFilesArr = item.artFiles ? [...item.artFiles] : [];
+          let artLines = 0;
+          if (artFilesArr.length) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(ART_FONT_SIZE);
+            const wrapped = doc.splitTextToSize(artFilesArr.join(' · '), labelMaxWPre - 4);
+            artLines = wrapped.length;
+          }
+          const h = BASE_H + (artLines ? ART_TOP_GAP + artLines * ART_LINE_H : 0);
+          rowHeights.push(h);
+        }
+      }
+
       const rowsToDraw = isEmpty ? 1 : data.length;
-      const bodyH = rowsToDraw * ROW_H + 12;
+      const bodyH = card.layout === 'nationalByArt'
+        ? rowHeights.reduce((s, h) => s + h, 0) + 12
+        : rowsToDraw * FIXED_ROW_H + 12;
       const totalH = HEADER_H + bodyH;
 
       // Card background
@@ -2888,21 +3185,28 @@
           doc.text(String(item.count), x + w - PAD, cy + 11, { align: 'right' });
         } else if (card.layout === 'nationalByArt') {
           // Layout for one National Summary row:
-          //   [pill?] [primary bold text] ............... [count]
+          //   [S/B pill] [primary bold text] · [Kiosk Type] ............... [count]
           //                  [secondary grey text]
           //
-          // Two visibility rules combine here:
+          // Visibility / styling rules:
           //
-          // 1. Pill — only drawn for non-Standard art types (Boosted, Digital With Bottom,
-          //    Digital Service, Local Plus, etc). STANDARD is the default and gets no pill,
-          //    so the boosted/digital pulls pop visually.
+          // 1. Art pill — a small square letter badge at the row's left edge:
+          //      • S in grey for Standard art (the default — kept visually quiet)
+          //      • B in purple for Boosted art (pops visually so warehouse spots them)
+          //    For any non-Standard / non-Boosted art type (Digital With Bottom, etc.),
+          //    we fall back to a small abbreviation pill in the card's accent color.
           //
-          // 2. Client vs Campaign promotion — many national tasks have an empty
+          // 2. Kiosk Type — appended to the primary line as `· Premium`, `· Luxury`, etc.
+          //    so the warehouse sees what kiosk hardware the artwork goes onto without
+          //    needing to cross-reference another document.
+          //
+          // 3. Client vs Campaign promotion — many national tasks have an empty
           //    clientCompany. Rather than showing a bare em-dash on the bold line, we
-          //    promote the campaign label to the primary line in those cases. If both are
-          //    populated, client stays bold on top and campaign sits below in light grey.
+          //    promote the campaign label to the primary line. If both are populated,
+          //    client stays bold on top and campaign sits below in light grey.
           const artText = String(item.art || '—').toUpperCase();
           const isStandard = artText === 'STANDARD';
+          const isBoosted = artText === 'BOOSTED';
           const clientText = (item.client || '').trim();
           // 'N/A' is the ingest fallback for missing customField values; treat it (and
           // 'NULL', em-dash, etc.) as no-client so we don't render a meaningless placeholder.
@@ -2910,24 +3214,48 @@
           const primaryText = hasRealClient ? clientText : (item.campaign || '—');
           const secondaryText = hasRealClient ? (item.campaign || '') : '';
 
-          let primaryStartX = x + PAD;
-          if (!isStandard) {
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(7);
-            doc.setTextColor(255, 255, 255);
-            const artW = Math.max(28, doc.getTextWidth(artText) + 10);
-            doc.setFillColor(card.accent[0], card.accent[1], card.accent[2]);
-            doc.roundedRect(x + PAD, cy + 1, artW, 11, 2.5, 2.5, 'F');
-            doc.text(artText, x + PAD + artW / 2, cy + 8.5, { align: 'center' });
-            primaryStartX = x + PAD + artW + 8;
+          // Small letter pill — 12pt square, sits flush at the left edge of the row
+          const PILL_W = 12;
+          const PILL_H = 11;
+          let pillFill = [156, 163, 175];   // grey for Standard
+          let pillLetter = 'S';
+          if (isBoosted) {
+            pillFill = [107, 43, 201];      // brand purple for Boosted
+            pillLetter = 'B';
+          } else if (!isStandard) {
+            // Other art types (Digital, Local Plus, etc.) — use the card accent color and
+            // the first letter of the art name as the badge.
+            pillFill = card.accent;
+            pillLetter = artText[0] || '?';
           }
+          doc.setFillColor(pillFill[0], pillFill[1], pillFill[2]);
+          doc.roundedRect(x + PAD, cy + 1, PILL_W, PILL_H, 2, 2, 'F');
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7.5);
+          doc.setTextColor(255, 255, 255);
+          doc.text(pillLetter, x + PAD + PILL_W / 2, cy + 8.5, { align: 'center' });
 
-          // Primary line — bold, dark
+          const primaryStartX = x + PAD + PILL_W + 6;
+
+          // Primary line — bold, dark. Append kiosk type as a quiet suffix when present.
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(9);
           doc.setTextColor(40, 40, 40);
           const primaryMaxW = labelMaxW - (primaryStartX - (x + PAD)) - 22;
-          doc.text(fitText(doc, primaryText, primaryMaxW), primaryStartX, cy + 9);
+          const primaryFitted = fitText(doc, primaryText, primaryMaxW);
+          doc.text(primaryFitted, primaryStartX, cy + 9);
+          // Render the kioskType label after the primary text in lighter weight/color
+          if (item.kioskType) {
+            const consumedW = doc.getTextWidth(primaryFitted);
+            const kTypeStartX = primaryStartX + consumedW + 6;
+            const kTypeMaxW = primaryMaxW - consumedW - 8;
+            if (kTypeMaxW > 20) {
+              doc.setFont('helvetica', 'normal');
+              doc.setFontSize(8.5);
+              doc.setTextColor(120, 120, 120);
+              doc.text('· ' + fitText(doc, item.kioskType, kTypeMaxW), kTypeStartX, cy + 9);
+            }
+          }
 
           // Count (right edge)
           doc.setFont('helvetica', 'bold');
@@ -2942,23 +3270,49 @@
             doc.setTextColor(140, 140, 140);
             doc.text(fitText(doc, secondaryText, labelMaxW - 4), x + PAD, cy + 21);
           }
+
+          // Tertiary line — Allocated Art file(s) for this group. Drawn small but with
+          // enough contrast to read on the warehouse's printed slips — the previous
+          // (215,215,215) at 6.5pt was washing out. We now wrap rather than truncate,
+          // since seeing the full file name matters when verifying art pulls.
+          // Multiple distinct files (rare) are joined with " · ".
+          const artFilesArr = item.artFiles ? [...item.artFiles] : [];
+          if (artFilesArr.length) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(ART_FONT_SIZE);
+            doc.setTextColor(140, 140, 140);
+            const artFilesStr = artFilesArr.join(' · ');
+            const wrapped = doc.splitTextToSize(artFilesStr, labelMaxW - 4);
+            // Y-offset depends on whether secondary line was drawn — push art files
+            // below the secondary line when present, otherwise sit them right under primary.
+            const artY = cy + (secondaryText ? 30 : 21);
+            wrapped.forEach((line, i) => {
+              doc.text(line, x + PAD, artY + i * ART_LINE_H);
+            });
+          }
         }
-        cy += ROW_H;
+        // Advance cy by this row's measured height (variable for nationalByArt, fixed for
+        // other layouts). The rowHeights array is pre-computed at the top of this function
+        // so totalH already accounts for these offsets.
+        const idx = data.indexOf(item);
+        cy += card.layout === 'nationalByArt' ? rowHeights[idx] : FIXED_ROW_H;
       }
       return y + totalH;
     }
 
     function drawDetailsTable(y, rows, title, subtitle, opts = {}) {
-      // Landscape CONTENT_W ≈ 720pt — these proportions auto-scale to fill it
+      // Landscape CONTENT_W ≈ 720pt — these proportions auto-scale to fill it.
+      // Boosted rows are highlighted with a light purple row tint instead of an inline
+      // pill or text column, which keeps the table visually clean while still letting
+      // production spot Boosted pulls at a glance. Standard rows stay neutral.
       const allCols = [
         { key: 'stop',      label: '#',                 w: 28 },
         { key: 'kiosk',     label: 'Kiosk ID',          w: 50 },
         { key: 'venue',     label: 'Venue',             w: 80 },
         { key: 'kioskLoc',  label: 'Location in Venue', w: 95 },
         { key: 'type',      label: 'Task Type',         w: 70 },
-        { key: 'boost',     label: 'Art',               w: 50 },
-        { key: 'clientCol', label: 'Client / Campaign', w: 155 },
-        { key: 'address',   label: 'Venue Location',    w: 170 },
+        { key: 'clientCol', label: 'Client / Campaign', w: 205 },
+        { key: 'address',   label: 'Venue Location',    w: 180 },
         { key: 'state',     label: 'St',                w: 32 },
       ];
       // Locals don't need the venue's street address — they're scoped to a single venue
@@ -2984,6 +3338,26 @@
           cols[clientIdx] = { ...cols[clientIdx], w: 130 };
           cols.splice(clientIdx + 1, 0, { key: 'artFile', label: 'Art File', w: 145 });
         }
+      }
+      // Locals-only layout: a fully custom column order designed for warehouse pulling.
+      // Order: Notes · Kiosk ID · SIO · Kiosk Type · Task Type · Venue ·
+      //        Client/Campaign · Allocated Art · State.
+      // Boosted rows are highlighted with a light purple background tint at the row
+      // level — see the row-fill block below — so we don't need a dedicated Art column.
+      if (opts.localsLayout) {
+        const byKey = Object.fromEntries(cols.map(c => [c.key, c]));
+        const built = [
+          { key: 'notes',     label: 'Notes',            w: 85 },
+          byKey.kiosk     && { ...byKey.kiosk,    w: 50 },
+          byKey.sio       && { ...byKey.sio,      w: 70 },
+          { key: 'kioskType', label: 'Kiosk Type',       w: 55 },
+          byKey.type      && { ...byKey.type,     w: 60 },
+          { key: 'venue',     label: 'Venue',            w: 70 },
+          byKey.clientCol && { ...byKey.clientCol, w: 168 },
+          byKey.artFile   && { ...byKey.artFile,  label: 'Allocated Art', w: 110 },
+          byKey.state     && { ...byKey.state,    w: 32 },
+        ].filter(Boolean);
+        cols = built;
       }
       const totalW = cols.reduce((s,c) => s + c.w, 0);
       const scale = CONTENT_W / totalW;
@@ -3044,10 +3418,81 @@
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8.5);
 
+      // ============ GROUPING (locals only) ============
+      // When opts.groupLocals is set, collapse rows that share their artwork-pull fields
+      // (SIO, Campaign, Task Type, Kiosk Type, Notes, Allocated Art, State) into a single
+      // master row + an indented sub-line listing each kiosk. Venue is allowed to vary
+      // within a group — it shows up per-kiosk in the sub-line. This compresses common
+      // patterns like "8 kiosks, all on the same campaign at varying Safeway/Albertsons
+      // venues" from 8 visually-identical rows into 1 master + 1 sub-line.
+      //
+      // Each renderItem is one of:
+      //   { kind: 'row',   row }                        — single-row render (standard)
+      //   { kind: 'group', master, kiosks, allSameVenue } — master row + sub-line
+      const renderItems = [];
+      if (opts.groupLocals) {
+        const groupKey = r => [
+          r.sio || '', r.campaign || '', r.type || '', r.kioskType || '',
+          (r.notes || '').replace(/\s+/g, ' ').trim(),
+          r.artFile || '', r.stateCode || ''
+        ].join('§');
+        const groupMap = new Map();
+        for (const r of rows) {
+          const key = groupKey(r);
+          if (groupMap.has(key)) {
+            groupMap.get(key).push(r);
+          } else {
+            groupMap.set(key, [r]);
+          }
+        }
+        // Iterate groups in the order their first row appears (preserves SIO sort order)
+        const seen = new Set();
+        for (const r of rows) {
+          const key = groupKey(r);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const groupRows = groupMap.get(key);
+          if (groupRows.length === 1) {
+            renderItems.push({ kind: 'row', row: groupRows[0] });
+          } else {
+            const venues = [...new Set(groupRows.map(g => (g.venue || '').trim()).filter(Boolean))];
+            const allSameVenue = venues.length <= 1;
+            // Master row: synthesize a row from the first group member, but show the
+            // count in the Kiosk ID column and "(varies)" in the Venue column when
+            // venues differ across the group.
+            const master = {
+              ...groupRows[0],
+              kiosk: '',                        // rendered as a bubble in the cell — see kiosk cell case below
+              venue: allSameVenue ? (venues[0] || groupRows[0].venue) : '(varies)',
+              _isGroupMaster: true,
+              _groupCount: groupRows.length,
+            };
+            renderItems.push({ kind: 'group', master, kiosks: groupRows, allSameVenue });
+          }
+        }
+      } else {
+        for (const r of rows) renderItems.push({ kind: 'row', row: r });
+      }
+
+      // Sub-block height (used only by groups). The grouped-locals sub-block now lists
+      // each kiosk on its own line — like a dropdown — instead of a single comma-joined
+      // line. SUB_ROW_H is the per-kiosk height; SUB_PAD is breathing room above/below.
+      const SUB_ROW_H = 11;
+      const SUB_PAD = 5;
+      const SUB_FONT = 7.5;
+
       let zebra = false;
-      for (const r of rows) {
-        // Page break if needed
-        if (cy + ROW_H > H - M) {
+      for (const item of renderItems) {
+        const r = item.kind === 'group' ? item.master : item.row;
+        const isMasterGroup = item.kind === 'group';
+        // Group sub-block grows with the number of kiosks: one row per kiosk + top/bottom padding
+        const subBlockH = isMasterGroup
+          ? item.kiosks.length * SUB_ROW_H + SUB_PAD * 2
+          : 0;
+        const thisRowH = ROW_H + subBlockH;
+
+        // Page break if needed (account for sub-block height when grouped)
+        if (cy + thisRowH > H - M) {
           doc.addPage();
           cy = M;
 
@@ -3087,11 +3532,38 @@
         // for the worker's reference but get dimmed so production ignores them. They never
         // appear in Locals (so this flag is naturally false there).
         const rowIsOmitted = !isPackable(r);
+        // Boosted rows get a light purple tint at the row level — production scanning the
+        // slip can spot every Boosted pull at a glance without needing a dedicated column
+        // or pill. Standard rows stay on the neutral white/zebra background.
+        //
+        // SUPPRESSION RULE: OnFleet sometimes tags removal/default tasks (Pull Down, Remove
+        // Kiosk, Default, etc.) as Boosted in the boostedStandard field, which is a data
+        // inconsistency — Boosted only makes sense for a real ad install. Treat any of
+        // these task-type families as NOT boosted regardless of what the boost field says,
+        // so the purple tint never decorates a removal row.
+        const ttLower = String(r.type || '').toLowerCase();
+        const sioLower = String(r.sio || '').toLowerCase();
+        const isRemovalLike =
+          isDefault(r)                            // already catches Pull Down + Default
+          || /\bremoval?\b/.test(ttLower)         // "Remove Kiosk", "Kiosk Removal", etc.
+          || /\bins\/remove\b/.test(ttLower)      // "Digital INS/Remove"
+          || ttLower === 'default'                // bare-default task type
+          || sioLower === 'default' || sioLower === '0';
+        const rowIsBoosted =
+          String(r.boost || '').toUpperCase() === 'BOOSTED'
+          && !rowIsOmitted
+          && !isRemovalLike;
 
-        // Row background — red wash for incorrect supersedes zebra; omitted rows stay
-        // on a neutral white/zebra background so the dimming reads cleanly.
+        // Row background — red wash for incorrect takes priority, then Boosted purple
+        // tint, then zebra. Omitted rows always stay neutral so dimming reads cleanly.
         if (rowIsIncorrect && !rowIsOmitted) {
           doc.setFillColor(254, 242, 242);   // soft red wash
+          doc.rect(M, cy, CONTENT_W, ROW_H, 'F');
+        } else if (rowIsBoosted) {
+          // Light brand-purple wash — readable on warehouse printers without overwhelming
+          // the row content. Picked to clearly distinguish from white and the very subtle
+          // zebra grey while staying tasteful at print resolution.
+          doc.setFillColor(232, 218, 250);
           doc.rect(M, cy, CONTENT_W, ROW_H, 'F');
         } else if (zebra) {
           doc.setFillColor(252, 252, 251);
@@ -3129,6 +3601,31 @@
               valColor = r.stopNumber ? [107, 43, 201] : [180, 180, 180];
               break;
             case 'kiosk':
+              // Group masters: render a small filled bubble showing the group's kiosk
+              // count instead of a text value. The dropdown sub-block below the master
+              // row enumerates the actual kiosk IDs, so the bubble's job is just to
+              // signal "this row represents N stops" at a glance.
+              if (r._isGroupMaster && r._groupCount) {
+                const count = r._groupCount;
+                const countText = String(count);
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(8.5);
+                const txtW = doc.getTextWidth(countText);
+                // Bubble diameter scales for double-digit counts so the number always fits
+                const BUB_H = 13;
+                const BUB_W = Math.max(BUB_H, txtW + 10);
+                const bx = cx + 3;
+                const by = cy + (ROW_H - BUB_H) / 2;
+                // Filled brand-purple bubble; if this row also got a Boosted/Incorrect
+                // tint at the row level, the bubble still reads clearly because it's
+                // filled & high contrast against any of those backgrounds.
+                doc.setFillColor(107, 43, 201);
+                doc.roundedRect(bx, by, BUB_W, BUB_H, BUB_H / 2, BUB_H / 2, 'F');
+                doc.setTextColor(255, 255, 255);
+                doc.text(countText, bx + BUB_W / 2, by + 9, { align: 'center' });
+                cx += c.w;
+                continue;  // skip the text-rendering tail at the end of the loop
+              }
               v = r.kiosk || '';
               valFont = 'bold';
               break;
@@ -3140,12 +3637,35 @@
               valColor = [21, 128, 61];
               break;
             case 'type': {
-              // Pull Down tasks are categorized as Defaults (artwork removal). Display
-              // them as "Default" in the task type column rather than the raw "Pull Down"
-              // string. The categorization upstream already groups these into the Defaults
-              // bucket so they're counted in the Defaults Summary.
+              // Per warehouse spec, the displayed task type follows two override rules:
+              //   - Pull Down → display as "Default" (artwork removal — already counted
+              //     in the Defaults bucket via isDefault upstream).
+              //   - Digital Default (default-classified task on a Premium Digital kiosk
+              //     without "Magnet" in the task type) → display as "Remove Magnet".
+              //     These tasks have no paper to pull but the field worker still has to
+              //     clear the existing magnet from the kiosk's paper slot. The row is
+              //     also dimmed via rowIsOmitted because Digital Defaults are flagged
+              //     non-packable.
               const tt = r.type || '';
-              v = /\bpull\s*down\b/i.test(tt) ? 'Default' : tt;
+              const ttLower = tt.toLowerCase();
+              const sioLower = String(r.sio || '').toLowerCase();
+              const boostLower = String(r.boost || '').toLowerCase();
+              const cnLower = String(r.campaign || '').toLowerCase();
+              const ktLower = String(r.kioskType || '').toLowerCase();
+              const isDefBool =
+                sioLower === 'default' || sioLower === '0'
+                || boostLower === 'default ad' || boostLower === 'default'
+                || ttLower === 'default'
+                || /\bpull\s*down\b/.test(ttLower) || /\bpull\s*down\b/.test(cnLower)
+                || /\breplace\s+with\s+default\b/.test(cnLower);
+              const isDigDef = isDefBool && ktLower === 'digital' && !/magnet/.test(ttLower);
+              if (isDigDef) {
+                v = 'Remove Magnet';
+              } else if (/\bpull\s*down\b/i.test(tt)) {
+                v = 'Default';
+              } else {
+                v = tt;
+              }
               if (r.isInstall && !opts.deemphasizeInstalls) {
                 valFont = 'bold';
                 valColor = [22, 163, 74];
@@ -3155,15 +3675,22 @@
             case 'boost':
               v = r.boost || '';
               break;
-            case 'sio':
-              v = r.sio || '';
-              if (v && v.toLowerCase() !== 'default') {
-                valFont = 'bold';
-              } else if (!v || v.toLowerCase() === 'default') {
+            case 'sio': {
+              // SIO field has a few "no-value" sentinels OnFleet uses: literal "Default"/
+              // "DEFAULT", "NULL", "0", and bare empty. They all mean the same thing —
+              // there's no specific SIO order, this row uses default artwork. Normalize
+              // them to the dim "Default" rendering so the warehouse reads them consistently.
+              const raw = (r.sio || '').toString().trim();
+              const isDefault = !raw || /^(default|null|0)$/i.test(raw);
+              if (isDefault) {
+                v = 'Default';
                 valColor = [180, 180, 180];
-                v = v || '—';
+              } else {
+                v = raw;
+                valFont = 'bold';
               }
               break;
+            }
             case 'clientCol': {
               // Plain text: "Client - Campaign - Customer Type", dim style matching other cells.
               // ALWAYS use campaignName for the campaign portion (nationalCampName is unreliable —
@@ -3185,8 +3712,41 @@
                 campaignField = '';
               }
 
+              // De-duplicate redundant pieces. OnFleet's free-form fields often have
+              // the client name baked into the campaign string ("Cindy Gee - Keller
+              // Williams" with client "Cindy Gee"), or the campaign repeated twice in
+              // a row, etc. The cell renderer ends up concatenating client + campaign
+              // and the result reads like "Cindy Gee - Cindy Gee - Keller Williams"
+              // unless we strip the duplication. Both the client and campaign fields
+              // can be multi-segment ("Cindy Gee - Keller Williams"), so we split BOTH
+              // on " - " and dedupe at the segment level. Comparison is case-insensitive
+              // and ignores punctuation/whitespace.
+              const norm = s => String(s || '').toLowerCase().replace(/[^\w]+/g, '');
+              const clientField = clean(r.clientCompany);
+              if (campaignField) {
+                const seen = new Set();
+                // Seed the seen set with each segment of the client field so subsequent
+                // matches in the campaign get suppressed
+                if (clientField) {
+                  for (const seg of clientField.split(/\s+-\s+/)) {
+                    const k = norm(seg);
+                    if (k) seen.add(k);
+                  }
+                }
+                const segs = campaignField.split(/\s+-\s+/);
+                const kept = [];
+                for (const seg of segs) {
+                  const k = norm(seg);
+                  if (!k) continue;
+                  if (seen.has(k)) continue;
+                  seen.add(k);
+                  kept.push(seg.trim());
+                }
+                campaignField = kept.join(' - ');
+              }
+
               const parts = [
-                clean(r.clientCompany),
+                clientField,
                 campaignField,
                 custNice,
               ].filter(Boolean);
@@ -3198,6 +3758,26 @@
               const af = (r.artFile || '').trim();
               v = af || '—';
               if (!af) valColor = [180, 180, 180];
+              break;
+            }
+            case 'kioskType': {
+              v = (r.kioskType || '').trim();
+              if (!v) { v = '—'; valColor = [180, 180, 180]; }
+              break;
+            }
+            case 'notes': {
+              // Raw OnFleet task notes, condensed for tabular display. The "art file"
+              // extraction we ran during ingest already pulled out structured artwork
+              // references; this column shows whatever else lives in notes — driver
+              // instructions, special handling, contact info, etc.
+              const raw = (r.notes || '').trim();
+              if (raw) {
+                // Collapse whitespace/newlines to a single space so the cell stays compact.
+                v = raw.replace(/\s+/g, ' ');
+              } else {
+                v = '—';
+                valColor = [180, 180, 180];
+              }
               break;
             }
             case 'state':
@@ -3232,7 +3812,46 @@
           cx += c.w;
         }
 
-        cy += ROW_H;
+        // Sub-block for grouped masters — each kiosk rendered on its own row, like a
+        // dropdown list. Drawn directly under the master row in a quiet grey panel so
+        // the master + sub-block read as a single visual unit. When venues vary across
+        // the group, each kiosk's venue appears in parens beside its ID.
+        if (isMasterGroup) {
+          const subY = cy + ROW_H;
+          // Subtle separator background extending the master row's color into the
+          // sub-block so the master + kiosks read as a single visual unit
+          doc.setFillColor(252, 250, 248);
+          doc.rect(M, subY, CONTENT_W, subBlockH, 'F');
+          // A faint left rule running the full sub-block height anchors the kiosks to
+          // the master row above. Keeps the dropdown feeling — like an indent guide.
+          doc.setFillColor(220, 215, 230);
+          doc.rect(M + 2, subY + 2, 1.4, subBlockH - 4, 'F');
+          // Indent the kiosk lines under the Kiosk ID column so they visually "hang
+          // off" the master's count cell
+          const notesCol = cols.find(c => c.key === 'notes');
+          const subX = M + (notesCol ? notesCol.w : 0) + 5;
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(SUB_FONT);
+
+          item.kiosks.forEach((k, idx) => {
+            const lineY = subY + SUB_PAD + idx * SUB_ROW_H + 8;
+            // Kiosk ID — slightly bolder/darker than the venue suffix for legibility
+            doc.setTextColor(90, 90, 90);
+            doc.text(k.kiosk || '—', subX, lineY);
+            // Venue suffix — only when venues vary across the group; rendered in lighter
+            // grey to keep the kiosk ID itself the eye anchor
+            if (!item.allSameVenue) {
+              const ven = (k.venue || '').trim();
+              if (ven) {
+                const idW = doc.getTextWidth(k.kiosk || '—');
+                doc.setTextColor(160, 160, 160);
+                doc.text(`  ${ven}`, subX + idW, lineY);
+              }
+            }
+          });
+        }
+
+        cy += thisRowH;
       }
       return cy;
     }
