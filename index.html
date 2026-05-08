@@ -2567,6 +2567,31 @@
     catch (e) { toast(`PDF save failed: ${e.message}`, 'error'); }
   }
 
+  // Appends a packing slip page to `doc` for each work order present in `data`
+  // (one page per WO, sorted newest-first to match the orders/packing-slips
+  // export ordering). Returns the doc so callers can chain. Used by every
+  // export mode that produces a multi-WO document so warehouse always gets
+  // a packing slip alongside the dispatch info.
+  //
+  // Tasks without a route (loose / orphan) are skipped because there's no
+  // WO to pack against. If the data has zero WO-bound tasks, this is a no-op.
+  function appendPackingSlipsForData(doc, data) {
+    if (!doc || !data || !data.length) return doc;
+    const wos = [...groupBy(data.filter(r => r.hasRoute), 'route').entries()]
+      .sort((a, b) => {
+        const ad = Math.max(...a[1].map(r => r.dateMs || 0));
+        const bd = Math.max(...b[1].map(r => r.dateMs || 0));
+        return bd - ad;
+      });
+    if (!wos.length) return doc;
+    for (const [woName, woRows] of wos) {
+      doc.addPage();
+      const result = appendPackingSlipPage(doc, woName, woRows);
+      if (!result) return doc; // jsPDF missing or render failed; bail gracefully
+    }
+    return doc;
+  }
+
   // ============ PACKING SLIP (warehouse-style — modeled on the legacy template) ============
   // Renders Worker name + WO# + Dispatcher, then 4 summary tables (Kiosk / Defaults / National
   // / Incorrect Artwork), then a wide details table.
@@ -3945,6 +3970,11 @@
 
     toast('Generating PDF…', 'info');
     const doc = buildPdfDoc(sections, filename);
+    // Every export mode (orders / workers / current_worker / pods) appends a
+    // packing slip per work order at the end of the document so warehouse
+    // always gets the picking info alongside dispatch info. The dedicated
+    // `packing_slips_all` mode returns earlier and doesn't reach this line.
+    appendPackingSlipsForData(doc, data);
     savePdf(doc, filename);
     document.querySelectorAll('details[open]').forEach(d => d.removeAttribute('open'));
   }
@@ -3957,6 +3987,7 @@
     const sections = [{ title: worker, subtitle: 'Work Order  ·  ' + woName, rows, woHero: summarizeWO(woName, rows) }];
     const filename = `${woName.replace(/[^\w-]+/g, '_')}_${date}.pdf`;
     const doc = buildPdfDoc(sections, filename);
+    appendPackingSlipsForData(doc, rows);
     savePdf(doc, filename);
   }
 
@@ -3973,6 +4004,7 @@
     }];
     const filename = `${w.replace(/\s+/g, '_')}_${date}.pdf`;
     const doc = buildPdfDoc(sections, filename);
+    appendPackingSlipsForData(doc, rows);
     savePdf(doc, filename);
   }
 
@@ -3983,6 +4015,7 @@
     const sections = [{ title: worker, subtitle: 'Work Order  ·  ' + woName, rows, woHero: summarizeWO(woName, rows) }];
     const filename = `${worker.replace(/\s+/g, '_')}_${woName.replace(/[^\w-]+/g, '_')}_${date}.pdf`;
     const doc = buildPdfDoc(sections, filename);
+    appendPackingSlipsForData(doc, rows);
     savePdf(doc, filename);
   }
   // ============ DATE CHIP UI ============
