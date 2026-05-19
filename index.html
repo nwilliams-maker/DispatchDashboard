@@ -1070,7 +1070,13 @@
     if (autoBtn) autoBtn.classList.add('syncing');
     setSyncStatus('syncing');
     try {
-      const res = await fetch(PROXY_URL);
+      // forceFresh=true (Sync button, auto-refresh, first load) MUST tell the Apps
+      // Script proxy to bypass its CacheService chunks — otherwise the proxy serves
+      // up to CACHE_TTL_SECONDS-old data regardless of what we do client-side.
+      // The `?refresh=1` parameter is what `doGet` checks for. `cache: 'no-store'`
+      // is belt-and-suspenders against HTTP-layer caching at the Google edge.
+      const url = forceFresh ? `${PROXY_URL}?refresh=1` : PROXY_URL;
+      const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const tasks = await res.json();
       state.lastFetchTs = Date.now();
