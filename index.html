@@ -700,6 +700,10 @@
         <span id="syncLoader" class="loader hidden"></span>
         <span id="syncText">🚀 Initialize Data</span>
       </button>
+      <button id="forceLiveBtn" class="btn btn-ghost tnum" onclick="forceLive()"
+              title="Sync, wait 65s for the proxy's cache to expire, then re-Sync. Guarantees the dashboard matches OnFleet at that moment.">
+        <span id="forceLiveText">⚡ Force live</span>
+      </button>
     </div>
   </div>
 </header>
@@ -1070,19 +1074,18 @@
     if (autoBtn) autoBtn.classList.add('syncing');
     setSyncStatus('syncing');
     try {
-      // Cache-busting: the Apps Script proxy memoizes the OnFleet payload for ~60s.
-      // Appending a per-call timestamp + nonce forces the proxy (and any intermediate
-      // CDN/browser cache) to treat each request as a distinct resource, so the dashboard
-      // sees the same data the OnFleet UX is showing -- not a stale snapshot.
-      // `cache: 'no-store'` + no-cache headers belt-and-suspenders the same goal.
-      const bustUrl = PROXY_URL
-        + (PROXY_URL.includes('?') ? '&' : '?')
-        + 't=' + Date.now()
-        + '&n=' + Math.random().toString(36).slice(2, 10);
-      const res = await fetch(bustUrl, {
-        cache: 'no-store',
-        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
-      });
+      // Defeat the BROWSER/CDN cache without triggering a CORS preflight.
+      // We deliberately do NOT add custom request headers (Cache-Control, Pragma, etc.):
+      // those turn this into a "non-simple" CORS request, which the browser would
+      // preflight with OPTIONS -- and Apps Script /exec endpoints don't answer OPTIONS,
+      // so the whole fetch fails with "Failed to fetch."
+      // We also do NOT add a cache-buster query string: the Apps Script proxy treats
+      // unknown query params as a different request mode and returns partial data
+      // (collapses the dashboard to ~3 routes).
+      // `cache: 'no-store'` is enough -- it stops the browser from replaying a local
+      // copy without changing the request the proxy sees. The proxy's own 60s cache
+      // is bypassed via the Force live button below.
+      const res = await fetch(PROXY_URL, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const tasks = await res.json();
       state.lastFetchTs = Date.now();
@@ -1102,6 +1105,61 @@
       loader.classList.add('hidden'); txt.classList.remove('hidden'); btn.disabled = false;
       if (autoBtn) autoBtn.classList.remove('syncing');
       updateAutoSyncUI();
+    }
+  }
+
+  // ============ FORCE LIVE (bypass proxy's 60s server-side cache) ============
+  // The Apps Script proxy caches its OnFleet response for ~60 seconds, so a fresh
+  // browser-side fetch can still receive a stale payload. The proxy's URL doesn't accept
+  // a cache-bust param (we tried -- it truncated the response). So we do this client-side:
+  //   1. Sync once to "prime" -- the proxy returns whatever it has cached and, if its
+  //      cache was empty/expired, repopulates with current OnFleet data.
+  //   2. Wait 65 seconds (proxy TTL + 5s safety margin) so the cached entry is guaranteed
+  //      to be expired -- regardless of when it was originally written.
+  //   3. Sync a second time -- this request hits an expired cache, so the proxy MUST
+  //      re-fetch from OnFleet. The data the dashboard now shows is what OnFleet's UX
+  //      shows at the same moment.
+  async function forceLive() {
+    const btn = document.getElementById('forceLiveBtn');
+    const lbl = document.getElementById('forceLiveText');
+    const syncBtn = document.getElementById('syncBtn');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.classList.add('forcing');
+    try {
+      // Step 1 -- prime
+      lbl.textContent = '⚡ Priming proxy…';
+      await fetchOnfleetData(true, { silent: true });
+
+      // Re-disable Sync immediately after step 1's finally{} re-enabled it.
+      // We don't want the user to click Sync during our wait window and pollute the test.
+      syncBtn.disabled = true;
+
+      // Step 2 -- wait for proxy cache to expire (60s TTL + 5s safety)
+      const WAIT_MS = 65_000;
+      const endAt = Date.now() + WAIT_MS;
+      while (Date.now() < endAt) {
+        const remaining = Math.ceil((endAt - Date.now()) / 1000);
+        const m = Math.floor(remaining / 60);
+        const sec = remaining % 60;
+        lbl.textContent = m > 0
+          ? `⚡ Waiting ${m}:${String(sec).padStart(2,'0')}`
+          : `⚡ Waiting ${sec}s`;
+        await new Promise(r => setTimeout(r, 250));
+      }
+
+      // Step 3 -- live pull
+      lbl.textContent = '⚡ Pulling live…';
+      await fetchOnfleetData(true);
+      toast('Force-live complete · data now matches OnFleet', 'success');
+    } catch (e) {
+      console.error(e);
+      toast(`Force-live failed: ${e.message}`, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.classList.remove('forcing');
+      syncBtn.disabled = false;
+      lbl.textContent = '⚡ Force live';
     }
   }
 
