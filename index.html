@@ -819,7 +819,7 @@
       <kbd>/</kbd> search · <kbd>Esc</kbd> clear · <kbd>R</kbd> refresh · <kbd>1</kbd>–<kbd>5</kbd> tabs
     </div>
     <div>
-      Read-only view · doesn't bill against OnFleet · cached for 60s ·
+      Read-only view · doesn't bill against OnFleet · each Sync pulls live ·
       <span id="footerMeta" class="mono"></span>
     </div>
   </footer>
@@ -1070,13 +1070,19 @@
     if (autoBtn) autoBtn.classList.add('syncing');
     setSyncStatus('syncing');
     try {
-      // forceFresh=true (Sync button, auto-refresh, first load) MUST tell the Apps
-      // Script proxy to bypass its CacheService chunks — otherwise the proxy serves
-      // up to CACHE_TTL_SECONDS-old data regardless of what we do client-side.
-      // The `?refresh=1` parameter is what `doGet` checks for. `cache: 'no-store'`
-      // is belt-and-suspenders against HTTP-layer caching at the Google edge.
-      const url = forceFresh ? `${PROXY_URL}?refresh=1` : PROXY_URL;
-      const res = await fetch(url, { cache: 'no-store' });
+      // Cache-busting: the Apps Script proxy memoizes the OnFleet payload for ~60s.
+      // Appending a per-call timestamp + nonce forces the proxy (and any intermediate
+      // CDN/browser cache) to treat each request as a distinct resource, so the dashboard
+      // sees the same data the OnFleet UX is showing -- not a stale snapshot.
+      // `cache: 'no-store'` + no-cache headers belt-and-suspenders the same goal.
+      const bustUrl = PROXY_URL
+        + (PROXY_URL.includes('?') ? '&' : '?')
+        + 't=' + Date.now()
+        + '&n=' + Math.random().toString(36).slice(2, 10);
+      const res = await fetch(bustUrl, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const tasks = await res.json();
       state.lastFetchTs = Date.now();
@@ -1084,7 +1090,7 @@
       ingest(tasks);
       writeRowsCache(state.rows);
       setSyncStatus('ok');
-      if (!silent) toast(`Synced ${state.raw.length.toLocaleString()} tasks`, 'success');
+      if (!silent) toast(`Live from OnFleet · ${state.raw.length.toLocaleString()} tasks`, 'success');
       applyFilters();
       // Manual sync resets the auto-refresh countdown so it doesn't fire again immediately
       if (state.autoRefresh && !silent) scheduleNextRefresh();
@@ -1105,7 +1111,7 @@
     if (s === 'syncing') { dot.className = 'w-1.5 h-1.5 rounded-full bg-amber-500'; lbl.textContent = 'Syncing…'; }
     else if (s === 'ok') {
       dot.className = 'pulse-dot';
-      lbl.textContent = state.lastSync ? `Synced ${state.lastSync.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : 'Synced';
+      lbl.textContent = state.lastSync ? `Synced ${state.lastSync.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})}` : 'Synced';
     }
     else if (s === 'error') { dot.className = 'w-1.5 h-1.5 rounded-full bg-red-500'; lbl.textContent = 'Sync failed'; }
     else { dot.className = 'w-1.5 h-1.5 rounded-full bg-stone-300'; lbl.textContent = 'Idle'; }
@@ -4110,7 +4116,9 @@
       state.lastSync = new Date(cached.ts);
       // routesFound is shown in the data summary — recompute from cached rows.
       state.routesFound = cached.rows.filter(r => r.hasRoute).length;
-      setSyncStatus('ok');
+      // Painted from cache -- show a syncing status until the live OnFleet fetch lands,
+      // so the user knows the on-screen data is being reconciled (not the final state).
+      setSyncStatus('syncing');
       applyFilters();
       // Background refresh — silent, doesn't block the UI. Toast suppressed since the user
       // already has data on screen; the only visible signal is the sync status indicator.
