@@ -1085,7 +1085,11 @@
       // `cache: 'no-store'` is enough -- it stops the browser from replaying a local
       // copy without changing the request the proxy sees. The proxy's own 60s cache
       // is bypassed via the Force live button below.
-      const res = await fetch(PROXY_URL, { cache: 'no-store' });
+      // forceFresh=true (Sync button, auto-refresh, first load) MUST tell the Apps
+      // Script proxy to bypass its CacheService chunks — otherwise the proxy serves
+      // up to CACHE_TTL_SECONDS-old data regardless of what we do client-side.
+      const url = forceFresh ? `${PROXY_URL}?refresh=1` : PROXY_URL;
+      const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const tasks = await res.json();
       state.lastFetchTs = Date.now();
