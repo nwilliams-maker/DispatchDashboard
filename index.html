@@ -862,7 +862,7 @@
     cfKeys: [],
     hasWoOnly: false,
     installOnly: false,
-    autoFixWoNames: true,
+    autoFixWoNames: false,
     scope: 'global',  // global | Blue | Green | Orange | Purple | Red | Digital
     autoRefresh: true,           // default ON — matches the original constant-sync behavior
     autoRefreshIntervalMs: 5 * 60_000,  // 5 minutes
@@ -4159,6 +4159,7 @@
       const saved = localStorage.getItem('routeFieldOverride');
       if (saved) state.routeFieldOverride = saved;
       const fix = localStorage.getItem('autoFixWoNames');
+      if (fix === '1') state.autoFixWoNames = true;
       if (fix === '0') state.autoFixWoNames = false;
       const ar = localStorage.getItem('autoRefresh');
       if (ar === '0') state.autoRefresh = false;
