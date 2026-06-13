@@ -768,7 +768,7 @@
   <section class="surface-card overflow-hidden">
     <div class="flex items-center justify-between px-5 hairline-b">
       <div class="flex items-center gap-1">
-        <div class="tab active" data-view="orders">Work Orders <span id="ordersCount" class="pill">0</span></div>
+        <div class="tab active" data-view="orders">Route Plans <span id="ordersCount" class="pill">0</span></div>
         <div class="tab" data-view="workers">Workers <span id="workersCount" class="pill">0</span></div>
         <div class="tab" data-view="table">All Tasks <span id="tasksCount" class="pill">0</span></div>
         <div class="tab" data-view="pods">Pods</div>
@@ -1278,22 +1278,25 @@
     return out;
   }
 
-  function getRoute(t, cf, meta, planIndex) {
+  function getRoute(t, cf, meta, planLabel) {
+    // ROUTE PLAN GROUPING: each card is the driver's OnFleet route plan, titled with the
+    // resolved route plan name ("Driver date", e.g. "Edward Ochotorena 06122026"). Order:
+    //   1. An explicit field the user picked (override) — a deliberate choice.
+    //   2. The route plan's display label (planLabel) — the feed's readable routeName, or
+    //      a "Driver MMDDYYYY" label derived from the plan's tasks when the feed only has
+    //      a UUID. Keyed by the OnFleet route plan, so a whole run stays on one card.
+    //   3. metadata.WO_NAME — fallback for tasks that have no route plan at all.
     if (state.routeFieldOverride) {
       const ov = state.routeFieldOverride;
       if (ov.startsWith('cf:')) { const v = cf(ov.slice(3)); if (v && v !== 'N/A') return String(v); }
       else if (ov.startsWith('meta:')) { const v = meta[ov.slice(5)]; if (v != null && v !== '') return String(v); }
+      return null; // override chosen but empty on this task -> loose, never fall back to a guess
     }
+    if (planLabel && t.routePlan && planLabel[t.routePlan]) return planLabel[t.routePlan];
+    const rn = (t.routeName == null ? '' : String(t.routeName)).trim();
+    const looksUuid = /^[A-Za-z0-9*~_-]{20,28}$/.test(rn) && !/\s/.test(rn);
+    if (rn && rn !== 'Manual Dispatch' && !looksUuid) return rn;
     if (meta.WO_NAME != null && meta.WO_NAME !== '') return String(meta.WO_NAME);
-    if (planIndex && t.routePlan && planIndex[t.routePlan]) return planIndex[t.routePlan];
-    for (const k of Object.keys(meta)) {
-      if (ROUTE_META_PATTERNS.some(p => p.test(k))) {
-        const v = meta[k]; if (v != null && v !== '') return String(v);
-      }
-    }
-    for (const k of ROUTE_CF_KEYS) {
-      const v = cf(k); if (v && v !== 'N/A') return v;
-    }
     return null;
   }
 
@@ -1305,12 +1308,38 @@
     const metaKeys = new Set();
     const cfKeys = new Set();
 
-    // pass 1: build routePlan UUID → WO_NAME index
-    const planIndex = {};
-    for (const t of tasks) {
-      const meta = getMetadataMap(t);
-      const wo = meta.WO_NAME;
-      if (t.routePlan && wo && !planIndex[t.routePlan]) planIndex[t.routePlan] = String(wo);
+    // Build a display label per OnFleet route plan so each card groups by the driver's
+    // actual run. Prefer the feed's readable routeName (what the DispatchDash proxy
+    // resolves, e.g. "Edward Ochotorena 06122026"); when the feed only gives a bare UUID
+    // token, derive "Driver MMDDYYYY" from the plan's own tasks (most common worker + most
+    // common task date). This keeps every stop on a run under ONE card with a readable
+    // title even before the proxy resolves names server-side. Grouping is by the plan, so
+    // mixed work orders on one run no longer scatter into separate cards.
+    const planLabel = {};
+    {
+      const byPlan = {};
+      for (const t of tasks) {
+        if (!t.routePlan) continue;
+        const p = t.routePlan;
+        const b = (byPlan[p] = byPlan[p] || { readable: null, workers: {}, dates: {} });
+        const rn0 = (t.routeName == null ? '' : String(t.routeName)).trim();
+        const isUuid0 = /^[A-Za-z0-9*~_-]{20,28}$/.test(rn0) && !/\s/.test(rn0);
+        if (!b.readable && rn0 && rn0 !== 'Manual Dispatch' && !isUuid0) b.readable = rn0;
+        const w = (t.workerName || '').trim();
+        if (w && w !== 'Unassigned') b.workers[w] = (b.workers[w] || 0) + 1;
+        if (t.timeCreated) {
+          const d = new Date(t.timeCreated);
+          const k = `${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}${d.getFullYear()}`;
+          b.dates[k] = (b.dates[k] || 0) + 1;
+        }
+      }
+      const mode = o => { let best = null, n = -1; for (const k in o) if (o[k] > n) { n = o[k]; best = k; } return best; };
+      for (const p in byPlan) {
+        const b = byPlan[p];
+        if (b.readable) { planLabel[p] = b.readable; continue; }
+        const w = mode(b.workers), dt = mode(b.dates);
+        planLabel[p] = w ? (dt ? `${w} ${dt}` : w) : null; // null -> getRoute falls back to WO_NAME
+      }
     }
 
     // OnFleet returns tasks in their natural stop order within each route. We preserve
@@ -1354,7 +1383,7 @@
       const upperState = rawState.toUpperCase();
       const stateCode = STATE_TO_ABBR[upperState] || upperState.slice(0, 2) || 'N/A';
       const pod = STATE_TO_POD[stateCode] || null;
-      const route = getRoute(t, cf, meta, planIndex);
+      const route = getRoute(t, cf, meta, planLabel);
       if (route) routesFound++;
       const ppt = (meta.PAY_PER_TASK != null && meta.PAY_PER_TASK !== '') ? Number(meta.PAY_PER_TASK) : null;
       const workerName = t.workerName || 'Unassigned';
@@ -1736,7 +1765,7 @@
             <div class="flex items-start justify-between gap-3">
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 mb-0.5 flex-wrap">
-                  <span class="micro">Work Order</span>
+                  <span class="micro">Route Plan</span>
                   ${primaryPod ? podBadge(primaryPod) : ''}
                   ${installBadge}
                   ${workers.length > 1 ? `<span class="micro" style="color:#b45309">⚠ multi-worker</span>` : ''}
@@ -1944,7 +1973,7 @@
   // ============ TABLE VIEW ============
   const TABLE_COLS = [
     { key: 'idx',           label: '#',         render: (r, i) => `<span class="mono text-stone-400 tnum">${i+1}</span>`, sort: false },
-    { key: 'route',         label: 'Work Order',render: r => {
+    { key: 'route',         label: 'Route Plan',render: r => {
         if (!r.hasRoute) return `<span class="text-stone-300">—</span>`;
         const hint = r.routeCorrected ? ` <span title="Auto-corrected from: ${esc(r.routeOriginal)}" style="color:#b45309; cursor:help;">ⓘ</span>` : '';
         return `<span class="wo-tag">${esc(r.route)}</span>${hint}`;
